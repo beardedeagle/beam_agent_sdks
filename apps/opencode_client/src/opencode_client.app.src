@@ -1,0 +1,8 @@
+{application, opencode_client, [
+    {description, "OpenCode HTTP adapter for the BEAM Agent SDK"},
+    {vsn, "0.1.0"},
+    {registered, []},
+    {applications, [kernel, stdlib, telemetry, agent_wire, gun]},
+    {env, []},
+    {modules, []}
+]}.

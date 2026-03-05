@@ -1,0 +1,217 @@
+defmodule GeminiExTest do
+  use ExUnit.Case, async: true
+
+  # Ensure module is loaded before function_exported? checks
+  setup_all do
+    {:module, _} = Code.ensure_loaded(GeminiEx)
+    :ok
+  end
+
+  # ── Option conversion ─────────────────────────────────────────────
+
+  describe "opts_to_map (via child_spec)" do
+    test "keyword list converts to map" do
+      spec = GeminiEx.child_spec(cli_path: "/usr/bin/gemini")
+      assert %{id: :gemini_cli_session} = spec
+      assert %{start: {:gemini_cli_session, :start_link, [opts]}} = spec
+      assert is_map(opts)
+      assert opts.cli_path == "/usr/bin/gemini"
+    end
+
+    test "session_id is used in child_spec id" do
+      spec = GeminiEx.child_spec(cli_path: "gemini", session_id: "s1")
+      assert %{id: {:gemini_cli_session, "s1"}} = spec
+    end
+  end
+
+  # ── Child spec structure ──────────────────────────────────────────
+
+  describe "child_spec" do
+    test "has correct structure" do
+      spec = GeminiEx.child_spec(cli_path: "gemini")
+      assert %{restart: :transient, shutdown: 10_000, type: :worker} = spec
+      assert %{modules: [:gemini_cli_session]} = spec
+    end
+  end
+
+  # ── SDK hook constructors ─────────────────────────────────────────
+
+  describe "sdk_hook" do
+    test "creates a hook without matcher" do
+      hook = GeminiEx.sdk_hook(:post_tool_use, fn _ctx -> :ok end)
+      assert is_map(hook)
+      assert hook.event == :post_tool_use
+    end
+
+    test "creates a hook with matcher" do
+      hook =
+        GeminiEx.sdk_hook(:pre_tool_use, fn _ctx -> :ok end, %{tool_name: "Read"})
+
+      assert is_map(hook)
+      assert hook.event == :pre_tool_use
+      assert is_map(hook.matcher)
+    end
+  end
+
+  # ── send_control not supported ────────────────────────────────────
+
+  describe "send_control" do
+    test "send_control returns not_supported" do
+      assert {:error, :not_supported} =
+               :gemini_cli_session.send_control(self(), "method", %{})
+    end
+  end
+
+  # ── Stream functions are exported ────────────────────────────────
+
+  describe "stream functions" do
+    test "stream!/3 is exported" do
+      assert function_exported?(GeminiEx, :stream!, 3)
+    end
+
+    test "stream/3 is exported" do
+      assert function_exported?(GeminiEx, :stream, 3)
+    end
+  end
+
+  # ── Start and lifecycle functions are exported ────────────────────
+
+  describe "lifecycle functions" do
+    test "start_session/1 is exported" do
+      assert function_exported?(GeminiEx, :start_session, 1)
+    end
+
+    test "stop/1 is exported" do
+      assert function_exported?(GeminiEx, :stop, 1)
+    end
+
+    test "health/1 is exported" do
+      assert function_exported?(GeminiEx, :health, 1)
+    end
+
+    test "session_info/1 is exported" do
+      assert function_exported?(GeminiEx, :session_info, 1)
+    end
+
+    test "set_model/2 is exported" do
+      assert function_exported?(GeminiEx, :set_model, 2)
+    end
+
+    test "interrupt/1 is exported" do
+      assert function_exported?(GeminiEx, :interrupt, 1)
+    end
+  end
+
+  # ── Integration tests with mock script ───────────────────────────
+
+  describe "query with mock CLI" do
+    setup do
+      script_path =
+        "/tmp/mock_gemini_ex_#{:erlang.unique_integer([:positive])}"
+
+      script = """
+      #!/bin/sh
+      echo '{"type":"init","session_id":"gemini-sess-ex","model":"gemini-2.0-flash"}'
+      echo '{"type":"message","role":"assistant","content":"Hello from GeminiEx!","delta":true}'
+      echo '{"type":"result","status":"success","stats":{"tokens_in":5,"tokens_out":10,"duration_ms":100,"tool_calls":0}}'
+      exit 0
+      """
+
+      File.write!(script_path, script)
+      System.cmd("chmod", ["+x", script_path])
+
+      on_exit(fn -> File.rm(script_path) end)
+      {:ok, script_path: script_path}
+    end
+
+    test "query/2 collects all messages", %{script_path: script_path} do
+      :application.ensure_all_started(:telemetry)
+      {:ok, session} = GeminiEx.start_session(cli_path: script_path)
+      {:ok, messages} = GeminiEx.query(session, "Hello!")
+      assert is_list(messages)
+      assert length(messages) >= 1
+      types = Enum.map(messages, & &1.type)
+      assert :text in types or :result in types
+      GeminiEx.stop(session)
+    end
+
+    test "stream!/3 yields messages", %{script_path: script_path} do
+      :application.ensure_all_started(:telemetry)
+      {:ok, session} = GeminiEx.start_session(cli_path: script_path)
+
+      messages =
+        session
+        |> GeminiEx.stream!("Hello!")
+        |> Enum.to_list()
+
+      assert is_list(messages)
+      assert length(messages) >= 1
+      GeminiEx.stop(session)
+    end
+
+    test "health returns ready before query", %{script_path: script_path} do
+      :application.ensure_all_started(:telemetry)
+      {:ok, session} = GeminiEx.start_session(cli_path: script_path)
+      assert GeminiEx.health(session) == :ready
+      GeminiEx.stop(session)
+    end
+
+    test "session_info returns gemini_cli transport", %{script_path: script_path} do
+      :application.ensure_all_started(:telemetry)
+      {:ok, session} = GeminiEx.start_session(cli_path: script_path)
+      {:ok, info} = GeminiEx.session_info(session)
+      assert info.transport == :gemini_cli
+      GeminiEx.stop(session)
+    end
+
+    test "set_model updates model", %{script_path: script_path} do
+      :application.ensure_all_started(:telemetry)
+      {:ok, session} = GeminiEx.start_session(cli_path: script_path)
+      {:ok, model} = GeminiEx.set_model(session, "gemini-1.5-pro")
+      assert model == "gemini-1.5-pro"
+      GeminiEx.stop(session)
+    end
+  end
+
+  # ── Content Block Generalization ──────────────────────────────────
+
+  describe "normalize_messages/1" do
+    test "flattens assistant messages inline" do
+      messages = [
+        %{type: :assistant, content_blocks: [
+          %{type: :thinking, thinking: "hmm"},
+          %{type: :text, text: "answer"}
+        ]},
+        %{type: :result}
+      ]
+
+      flat = GeminiEx.normalize_messages(messages)
+      types = Enum.map(flat, & &1.type)
+      assert types == [:thinking, :text, :result]
+    end
+
+    test "passes through Gemini-style flat messages unchanged" do
+      messages = [
+        %{type: :system, subtype: "init", content: ""},
+        %{type: :text, content: "hi"},
+        %{type: :result, content: ""}
+      ]
+
+      assert GeminiEx.normalize_messages(messages) == messages
+    end
+  end
+
+  describe "content block conversion" do
+    test "round-trip thinking block" do
+      block = %{type: :thinking, thinking: "reason"}
+      assert block == GeminiEx.message_to_block(GeminiEx.block_to_message(block))
+    end
+
+    test "messages_to_blocks converts flat messages" do
+      blocks = GeminiEx.messages_to_blocks([%{type: :thinking, content: "hmm"}])
+      assert length(blocks) == 1
+      assert hd(blocks).type == :thinking
+      assert hd(blocks).thinking == "hmm"
+    end
+  end
+end

@@ -1,0 +1,13 @@
+{application, codex_app_server, [
+    {description, "Codex CLI wire protocol adapter for BEAM — gen_statem over JSON-RPC/stdio"},
+    {vsn, "0.1.0"},
+    {registered, []},
+    {applications, [
+        kernel,
+        stdlib,
+        telemetry,
+        agent_wire
+    ]},
+    {env, []},
+    {modules, []}
+]}.

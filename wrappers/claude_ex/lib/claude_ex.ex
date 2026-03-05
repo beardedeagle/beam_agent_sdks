@@ -1,0 +1,871 @@
+defmodule ClaudeEx do
+  @moduledoc """
+  Elixir wrapper for the Claude Code agent SDK.
+
+  Provides idiomatic Elixir access to `claude_agent_session` (Erlang/OTP
+  gen_statem) with lazy streaming via `Stream.resource/3`.
+
+  ## Quick Start
+
+      # Start a session
+      {:ok, session} = ClaudeEx.start_session(cli_path: "/usr/local/bin/claude")
+
+      # Blocking query — collects all messages
+      {:ok, messages} = ClaudeEx.query(session, "What is 2 + 2?")
+
+      # Streaming query — lazy enumerable
+      ClaudeEx.stream!(session, "Explain OTP supervision trees")
+      |> Enum.each(fn msg ->
+        case msg.type do
+          :assistant -> Enum.each(msg.content_blocks, &IO.inspect/1)
+          :result    -> IO.puts(msg.content)
+          _          -> :ok
+        end
+      end)
+
+  ## Session Options
+
+  - `:cli_path` — Path to the Claude CLI executable (default: `"claude"`)
+  - `:work_dir` — Working directory for the CLI subprocess
+  - `:env` — Environment variables as `[{key, value}]` charlists
+  - `:buffer_max` — Max raw binary buffer in bytes (default: 2MB)
+  - `:session_id` — Resume a previous session (binary)
+  - `:model` — Model to use (binary, e.g. `"claude-sonnet-4-6"`)
+  - `:system_prompt` — System prompt (binary or preset map)
+  - `:max_turns` — Maximum number of turns
+  - `:resume` — Resume a previous session (boolean)
+  - `:fork_session` — Fork from an existing session (boolean)
+  - `:permission_mode` — Permission mode (binary or atom)
+  - `:permission_handler` — `fn(tool_name, tool_input, options) -> result` callback
+  - `:allowed_tools` — List of allowed tool names
+  - `:disallowed_tools` — List of disallowed tool names
+  - `:agents` — Subagent configurations (map)
+  - `:mcp_servers` — MCP server configurations (map)
+  - `:output_format` — Structured output JSON schema (map)
+  - `:thinking` — Thinking configuration (map)
+  - `:effort` — Effort level (binary)
+  - `:max_budget_usd` — Maximum cost budget (number)
+  - `:enable_file_checkpointing` — Enable file checkpoints (boolean)
+  - `:plugins` — Plugin configurations (list)
+  - `:hooks` — Hook configurations (map)
+  - `:betas` — Beta features to enable (list)
+  - `:sandbox` — Sandbox configuration (map)
+  - `:debug` — Enable debug mode (boolean)
+  - `:extra_args` — Extra CLI arguments (map)
+  - `:client_app` — Client application name (binary)
+  - `:user_input_handler` — `fn(request, context) -> {:ok, answer} | {:error, reason}`
+    callback for elicitation/user-input requests from the CLI
+  - `:sdk_mcp_servers` — In-process MCP servers (list of server maps from `mcp_server/2`)
+  - `:sdk_hooks` — SDK lifecycle hooks (list of hook maps from `sdk_hook/2,3`)
+
+  ## In-Process MCP Servers
+
+  Define custom tools as Elixir functions that Claude can call in-process:
+
+      tool = ClaudeEx.mcp_tool("greet", "Greet a user",
+        %{"type" => "object", "properties" => %{"name" => %{"type" => "string"}}},
+        fn input -> {:ok, [%{type: :text, text: "Hello, \#{input["name"]}!"}]} end
+      )
+      server = ClaudeEx.mcp_server("my-tools", [tool])
+      {:ok, session} = ClaudeEx.start_session(sdk_mcp_servers: [server])
+
+  ## Session History
+
+  Browse past Claude Code sessions without starting a new one:
+
+      {:ok, sessions} = ClaudeEx.list_sessions()
+      {:ok, messages} = ClaudeEx.get_session_messages("session-uuid")
+  """
+
+  @type session :: pid()
+
+  @type content_block :: %{
+          required(:type) => :text | :thinking | :tool_use | :tool_result | :raw,
+          optional(:text) => binary(),
+          optional(:thinking) => binary(),
+          optional(:id) => binary(),
+          optional(:name) => binary(),
+          optional(:input) => map(),
+          optional(:tool_use_id) => binary(),
+          optional(:content) => binary(),
+          optional(:raw) => map()
+        }
+
+  @type stop_reason ::
+          :end_turn
+          | :max_tokens
+          | :stop_sequence
+          | :refusal
+          | :tool_use_stop
+          | :unknown_stop
+
+  @type permission_mode ::
+          :default
+          | :accept_edits
+          | :bypass_permissions
+          | :plan
+          | :dont_ask
+
+  @type message :: %{
+          required(:type) =>
+            :text
+            | :assistant
+            | :tool_use
+            | :tool_result
+            | :system
+            | :result
+            | :error
+            | :user
+            | :control
+            | :control_request
+            | :control_response
+            | :stream_event
+            | :rate_limit_event
+            | :tool_progress
+            | :tool_use_summary
+            | :thinking
+            | :auth_status
+            | :prompt_suggestion
+            | :raw,
+          optional(:content) => binary(),
+          optional(:tool_name) => binary(),
+          optional(:tool_input) => map(),
+          optional(:raw) => map(),
+          optional(:timestamp) => integer(),
+          # Common wire fields
+          optional(:uuid) => binary(),
+          optional(:session_id) => binary(),
+          # Assistant message fields
+          optional(:content_blocks) => [content_block()],
+          optional(:parent_tool_use_id) => binary() | nil,
+          optional(:message_id) => binary(),
+          optional(:model) => binary(),
+          optional(:error_info) => map(),
+          # System message fields
+          optional(:system_info) => map(),
+          # Result enrichment fields
+          optional(:duration_ms) => non_neg_integer(),
+          optional(:duration_api_ms) => non_neg_integer(),
+          optional(:num_turns) => non_neg_integer(),
+          optional(:stop_reason) => binary(),
+          optional(:stop_reason_atom) => stop_reason(),
+          optional(:usage) => map(),
+          optional(:model_usage) => map(),
+          optional(:total_cost_usd) => number(),
+          optional(:is_error) => boolean(),
+          optional(:subtype) => binary(),
+          optional(:errors) => [binary()],
+          optional(:structured_output) => term(),
+          optional(:permission_denials) => list(),
+          optional(:fast_mode_state) => map(),
+          # User message fields
+          optional(:is_replay) => boolean(),
+          # Control protocol fields
+          optional(:request_id) => binary(),
+          optional(:request) => map(),
+          optional(:response) => map(),
+          # Rate limit event fields (TS SDK SDKRateLimitInfo)
+          optional(:rate_limit_status) => binary(),
+          optional(:resets_at) => number(),
+          optional(:rate_limit_type) => binary(),
+          optional(:utilization) => number(),
+          optional(:overage_status) => binary(),
+          optional(:overage_resets_at) => number(),
+          optional(:overage_disabled_reason) => binary(),
+          optional(:is_using_overage) => boolean(),
+          optional(:surpassed_threshold) => number()
+        }
+
+  @type session_opt ::
+          {:cli_path, Path.t()}
+          | {:work_dir, Path.t()}
+          | {:env, [{charlist(), charlist()}]}
+          | {:buffer_max, pos_integer()}
+          | {:session_id, binary()}
+          | {:model, binary()}
+          | {:system_prompt, binary() | map()}
+          | {:max_turns, pos_integer()}
+          | {:resume, boolean()}
+          | {:fork_session, boolean()}
+          | {:continue, boolean()}
+          | {:persist_session, boolean()}
+          | {:permission_mode, binary() | permission_mode()}
+          | {:permission_handler, (binary(), map(), map() -> term())}
+          | {:allowed_tools, [binary()]}
+          | {:disallowed_tools, [binary()]}
+          | {:agents, map()}
+          | {:mcp_servers, map()}
+          | {:output_format, map()}
+          | {:thinking, map()}
+          | {:effort, binary()}
+          | {:max_budget_usd, number()}
+          | {:enable_file_checkpointing, boolean()}
+          | {:setting_sources, [binary()]}
+          | {:plugins, [map()]}
+          | {:hooks, map()}
+          | {:betas, [binary()]}
+          | {:include_partial_messages, boolean()}
+          | {:prompt_suggestions, boolean()}
+          | {:sandbox, map()}
+          | {:debug, boolean()}
+          | {:debug_file, binary()}
+          | {:extra_args, map()}
+          | {:client_app, binary()}
+          | {:sdk_mcp_servers, [map()]}
+          | {:sdk_hooks, [map()]}
+
+  @type query_opt ::
+          {:system_prompt, binary()}
+          | {:allowed_tools, [binary()]}
+          | {:disallowed_tools, [binary()]}
+          | {:max_tokens, pos_integer()}
+          | {:max_turns, pos_integer()}
+          | {:permission_mode, binary()}
+          | {:model, binary()}
+          | {:timeout, timeout()}
+          | {:output_format, map()}
+          | {:thinking, map()}
+          | {:effort, binary()}
+          | {:max_budget_usd, number()}
+          | {:agent, binary()}
+
+  @doc """
+  Start a new Claude Code session.
+
+  Returns `{:ok, pid}` on success. The session process can be added
+  to your supervision tree via `ClaudeEx.child_spec/1`.
+
+  ## Examples
+
+      {:ok, session} = ClaudeEx.start_session(cli_path: "claude")
+      {:ok, session} = ClaudeEx.start_session(work_dir: "/my/project")
+      {:ok, session} = ClaudeEx.start_session(
+        cli_path: "claude",
+        model: "claude-sonnet-4-20250514",
+        permission_mode: :accept_edits
+      )
+  """
+  @spec start_session([session_opt()]) :: {:ok, session()} | {:error, term()}
+  def start_session(opts \\ []) do
+    opts
+    |> opts_to_map()
+    |> :claude_agent_session.start_link()
+  end
+
+  @doc """
+  Send a query and collect all response messages (blocking).
+
+  Returns the complete list of messages once the query finishes.
+  This is the simple, synchronous interface.
+
+  ## Examples
+
+      {:ok, messages} = ClaudeEx.query(session, "Hello!")
+      last = List.last(messages)
+      IO.puts(last.content)
+  """
+  @spec query(session(), binary(), [query_opt()]) ::
+          {:ok, [message()]} | {:error, term()}
+  def query(session, prompt, opts \\ []) do
+    params = opts_to_map(opts)
+    :claude_agent_sdk.query(session, prompt, params)
+  end
+
+  @doc """
+  Return a lazy `Stream` of messages for the given prompt.
+
+  Uses `Stream.resource/3` to implement demand-driven consumption:
+  the gen_statem only parses the next JSONL line when the stream
+  consumer requests it. The query is dispatched to the CLI
+  immediately when `stream!/3` is called; message *consumption*
+  is lazy/pull-based.
+
+  The stream halts automatically when a `:result` or `:error` message
+  is received, or when the query completes.
+
+  ## Examples
+
+      ClaudeEx.stream!(session, "Explain GenServer")
+      |> Stream.filter(& &1.type == :assistant)
+      |> Enum.flat_map(& &1.content_blocks)
+      |> Enum.filter(& &1.type == :text)
+      |> Enum.map(& &1.text)
+      |> Enum.join("")
+
+      # With options
+      ClaudeEx.stream!(session, "Hello", system_prompt: "Be brief")
+      |> Enum.to_list()
+  """
+  @spec stream!(session(), binary(), [query_opt()]) :: Enumerable.t()
+  def stream!(session, prompt, opts \\ []) do
+    params = opts_to_map(opts)
+    timeout = Map.get(params, :timeout, 120_000)
+
+    Stream.resource(
+      # start_fun: send query, compute deadline for wall-clock bound
+      fn ->
+        deadline = :erlang.monotonic_time(:millisecond) + timeout
+
+        case :claude_agent_session.send_query(session, prompt, params, timeout) do
+          {:ok, ref} -> {session, ref, deadline}
+          {:error, reason} -> raise "Failed to start query: #{inspect(reason)}"
+        end
+      end,
+      # next_fun: pull one message at a time (demand-driven)
+      fn
+        :halt ->
+          {:halt, :done}
+
+        {sess, ref, deadline} ->
+          remaining = max(0, deadline - :erlang.monotonic_time(:millisecond))
+
+          if remaining <= 0 do
+            raise "Stream error: timeout"
+          end
+
+          case :claude_agent_session.receive_message(sess, ref, remaining) do
+            {:ok, %{type: type} = msg} when type in [:result, :error] ->
+              # Final message — emit it and signal halt on next pull
+              {[normalize_msg(msg)], :halt}
+
+            {:ok, msg} ->
+              {[normalize_msg(msg)], {sess, ref, deadline}}
+
+            {:error, :complete} ->
+              {:halt, :done}
+
+            {:error, reason} ->
+              raise "Stream error: #{inspect(reason)}"
+          end
+      end,
+      # after_fun: cleanup (session stays alive for reuse)
+      fn _state -> :ok end
+    )
+  end
+
+  @doc """
+  Return a `Stream` that does not raise on errors.
+
+  Like `stream!/3` but wraps messages in `{:ok, msg}` tuples and
+  returns `{:error, reason}` on failure instead of raising.
+  """
+  @spec stream(session(), binary(), [query_opt()]) :: Enumerable.t()
+  def stream(session, prompt, opts \\ []) do
+    params = opts_to_map(opts)
+    timeout = Map.get(params, :timeout, 120_000)
+
+    Stream.resource(
+      fn ->
+        deadline = :erlang.monotonic_time(:millisecond) + timeout
+
+        case :claude_agent_session.send_query(session, prompt, params, timeout) do
+          {:ok, ref} -> {session, ref, deadline, :ok}
+          {:error, reason} -> {:error, reason}
+        end
+      end,
+      fn
+        :halt ->
+          {:halt, :done}
+
+        {:error, reason} ->
+          {[{:error, reason}], :halt}
+
+        {sess, ref, deadline, :ok} ->
+          remaining = max(0, deadline - :erlang.monotonic_time(:millisecond))
+
+          if remaining <= 0 do
+            {[{:error, :timeout}], :halt}
+          else
+            case :claude_agent_session.receive_message(sess, ref, remaining) do
+              {:ok, %{type: type} = msg} when type in [:result, :error] ->
+                {[{:ok, normalize_msg(msg)}], :halt}
+
+              {:ok, msg} ->
+                {[{:ok, normalize_msg(msg)}], {sess, ref, deadline, :ok}}
+
+              {:error, :complete} ->
+                {:halt, :done}
+
+              {:error, reason} ->
+                {[{:error, reason}], :halt}
+            end
+          end
+      end,
+      fn _state -> :ok end
+    )
+  end
+
+  @doc """
+  Get the current health/state of a session.
+
+  ## Examples
+
+      :ready = ClaudeEx.health(session)
+  """
+  @spec health(session()) :: :ready | :connecting | :initializing | :active_query | :error
+  def health(session) do
+    :claude_agent_sdk.health(session)
+  end
+
+  @doc """
+  Gracefully stop a session, closing the CLI subprocess.
+  """
+  @spec stop(session()) :: :ok
+  def stop(session) do
+    :claude_agent_session.stop(session)
+  end
+
+  @doc """
+  Query session capabilities and initialization data.
+
+  Returns a map with:
+  - `:session_id` — the session ID
+  - `:system_info` — parsed system init metadata (tools, model, etc.)
+  - `:init_response` — raw initialize control_response
+
+  Available in all session states (connecting, initializing, ready, active_query, error).
+
+  ## Examples
+
+      {:ok, info} = ClaudeEx.session_info(session)
+      info.system_info.model  # => "claude-sonnet-4-20250514"
+      info.system_info.tools  # => ["Read", "Write", "Bash"]
+  """
+  @spec session_info(session()) :: {:ok, map()} | {:error, term()}
+  def session_info(session) do
+    :claude_agent_sdk.session_info(session)
+  end
+
+  @doc """
+  Change the model at runtime during a session.
+
+  ## Examples
+
+      :ok = ClaudeEx.set_model(session, "claude-sonnet-4-20250514")
+  """
+  @spec set_model(session(), binary()) :: {:ok, term()} | {:error, term()}
+  def set_model(session, model) do
+    :claude_agent_sdk.set_model(session, model)
+  end
+
+  @doc """
+  Change the permission mode at runtime.
+
+  ## Examples
+
+      :ok = ClaudeEx.set_permission_mode(session, "acceptEdits")
+  """
+  @spec set_permission_mode(session(), binary()) :: {:ok, term()} | {:error, term()}
+  def set_permission_mode(session, mode) do
+    :claude_agent_sdk.set_permission_mode(session, mode)
+  end
+
+  @doc """
+  Revert file changes to a checkpoint identified by UUID.
+
+  Only meaningful when file checkpointing is enabled in session opts.
+
+  ## Examples
+
+      {:ok, _} = ClaudeEx.rewind_files(session, "msg-uuid-123")
+  """
+  @spec rewind_files(session(), binary()) :: {:ok, term()} | {:error, term()}
+  def rewind_files(session, checkpoint_uuid) do
+    :claude_agent_sdk.rewind_files(session, checkpoint_uuid)
+  end
+
+  @doc """
+  Stop a running agent task by task ID.
+
+  ## Examples
+
+      {:ok, _} = ClaudeEx.stop_task(session, "task-abc")
+  """
+  @spec stop_task(session(), binary()) :: {:ok, term()} | {:error, term()}
+  def stop_task(session, task_id) do
+    :claude_agent_sdk.stop_task(session, task_id)
+  end
+
+  @doc """
+  Set the maximum thinking tokens at runtime.
+
+  Controls how many tokens the model can use for its internal
+  reasoning/thinking process.
+
+  ## Examples
+
+      {:ok, _} = ClaudeEx.set_max_thinking_tokens(session, 8192)
+  """
+  @spec set_max_thinking_tokens(session(), pos_integer()) :: {:ok, term()} | {:error, term()}
+  def set_max_thinking_tokens(session, max_tokens) when is_integer(max_tokens) and max_tokens > 0 do
+    :claude_agent_sdk.set_max_thinking_tokens(session, max_tokens)
+  end
+
+  @doc """
+  Query MCP server health and status.
+
+  Returns connection status, availability, and diagnostics for all
+  configured MCP servers in the session.
+
+  ## Examples
+
+      {:ok, status} = ClaudeEx.mcp_server_status(session)
+  """
+  @spec mcp_server_status(session()) :: {:ok, term()} | {:error, term()}
+  def mcp_server_status(session) do
+    :claude_agent_sdk.mcp_server_status(session)
+  end
+
+  @doc """
+  Dynamically add or replace MCP server configurations.
+
+  Accepts a map of server name => server config. Existing servers
+  with the same name are replaced; others are unaffected.
+
+  ## Examples
+
+      servers = %{"my_server" => %{"command" => "node", "args" => ["server.js"]}}
+      {:ok, _} = ClaudeEx.set_mcp_servers(session, servers)
+  """
+  @spec set_mcp_servers(session(), map()) :: {:ok, term()} | {:error, term()}
+  def set_mcp_servers(session, servers) when is_map(servers) do
+    :claude_agent_sdk.set_mcp_servers(session, servers)
+  end
+
+  @doc """
+  Reconnect a failed MCP server by name.
+
+  ## Examples
+
+      {:ok, _} = ClaudeEx.reconnect_mcp_server(session, "my_server")
+  """
+  @spec reconnect_mcp_server(session(), binary()) :: {:ok, term()} | {:error, term()}
+  def reconnect_mcp_server(session, server_name) when is_binary(server_name) do
+    :claude_agent_sdk.reconnect_mcp_server(session, server_name)
+  end
+
+  @doc """
+  Enable or disable an MCP server at runtime.
+
+  ## Examples
+
+      {:ok, _} = ClaudeEx.toggle_mcp_server(session, "my_server", false)
+      {:ok, _} = ClaudeEx.toggle_mcp_server(session, "my_server", true)
+  """
+  @spec toggle_mcp_server(session(), binary(), boolean()) :: {:ok, term()} | {:error, term()}
+  def toggle_mcp_server(session, server_name, enabled)
+      when is_binary(server_name) and is_boolean(enabled) do
+    :claude_agent_sdk.toggle_mcp_server(session, server_name, enabled)
+  end
+
+  @doc """
+  List available slash commands from the init response.
+
+  Returns the commands array from the initialize control_response,
+  or an empty list if not yet initialized.
+
+  ## Examples
+
+      {:ok, commands} = ClaudeEx.supported_commands(session)
+      Enum.each(commands, &IO.inspect/1)
+  """
+  @spec supported_commands(session()) :: {:ok, list()} | {:error, term()}
+  def supported_commands(session) do
+    :claude_agent_sdk.supported_commands(session)
+  end
+
+  @doc """
+  List available models from the init response.
+
+  ## Examples
+
+      {:ok, models} = ClaudeEx.supported_models(session)
+  """
+  @spec supported_models(session()) :: {:ok, list()} | {:error, term()}
+  def supported_models(session) do
+    :claude_agent_sdk.supported_models(session)
+  end
+
+  @doc """
+  List available agents from the init response.
+
+  ## Examples
+
+      {:ok, agents} = ClaudeEx.supported_agents(session)
+  """
+  @spec supported_agents(session()) :: {:ok, list()} | {:error, term()}
+  def supported_agents(session) do
+    :claude_agent_sdk.supported_agents(session)
+  end
+
+  @doc """
+  Get account information from the init response.
+
+  Returns account details (email, org, subscription type, etc.)
+  from the initialize control_response.
+
+  ## Examples
+
+      {:ok, account} = ClaudeEx.account_info(session)
+      account["email"]  # => "user@example.com"
+  """
+  @spec account_info(session()) :: {:ok, map()} | {:error, term()}
+  def account_info(session) do
+    :claude_agent_sdk.account_info(session)
+  end
+
+  # -------------------------------------------------------------------
+  # In-Process MCP Servers
+  # -------------------------------------------------------------------
+
+  @doc """
+  Create an MCP tool definition for in-process tool handling.
+
+  The handler function receives the tool input as a map and must return
+  `{:ok, [content_result()]}` or `{:error, binary()}`.
+
+  ## Examples
+
+      tool = ClaudeEx.mcp_tool("echo", "Echo input",
+        %{"type" => "object", "properties" => %{"text" => %{"type" => "string"}}},
+        fn input -> {:ok, [%{type: :text, text: input["text"]}]} end
+      )
+  """
+  @spec mcp_tool(binary(), binary(), map(), (map() -> {:ok, list()} | {:error, binary()})) ::
+          map()
+  def mcp_tool(name, description, input_schema, handler) do
+    :agent_wire_mcp.tool(name, description, input_schema, handler)
+  end
+
+  @doc """
+  Create an MCP server with a list of tools.
+
+  The server is registered with the session at startup and handles
+  JSON-RPC tool calls from Claude in-process.
+
+  ## Examples
+
+      tool = ClaudeEx.mcp_tool("greet", "Greet user", %{"type" => "object"},
+        fn _input -> {:ok, [%{type: :text, text: "Hello!"}]} end
+      )
+      server = ClaudeEx.mcp_server("my-tools", [tool])
+      {:ok, session} = ClaudeEx.start_session(sdk_mcp_servers: [server])
+  """
+  @spec mcp_server(binary(), [map()]) :: map()
+  def mcp_server(name, tools) do
+    :agent_wire_mcp.server(name, tools)
+  end
+
+  # -------------------------------------------------------------------
+  # SDK Lifecycle Hooks
+  # -------------------------------------------------------------------
+
+  @doc """
+  Create an SDK lifecycle hook.
+
+  Hooks fire at key session lifecycle points. Events:
+  - `:pre_tool_use` — before tool execution (can deny)
+  - `:post_tool_use` — after tool result received
+  - `:stop` — when result/completion received
+  - `:session_start` — when session enters ready state
+  - `:session_end` — when session terminates
+  - `:user_prompt_submit` — before query sent (can deny)
+
+  ## Examples
+
+      hook = ClaudeEx.sdk_hook(:pre_tool_use, fn ctx ->
+        case ctx.tool_name do
+          "Bash" -> {:deny, "No shell access"}
+          _ -> :ok
+        end
+      end)
+      {:ok, session} = ClaudeEx.start_session(sdk_hooks: [hook])
+  """
+  @spec sdk_hook(atom(), (map() -> :ok | {:deny, binary()})) :: map()
+  def sdk_hook(event, callback) do
+    :agent_wire_hooks.hook(event, callback)
+  end
+
+  @doc """
+  Create an SDK lifecycle hook with a matcher filter.
+
+  The matcher's `:tool_name` (exact string or regex) restricts which
+  tools trigger the hook. Only relevant for tool-related events.
+
+  ## Examples
+
+      # Only fire on Bash tool
+      hook = ClaudeEx.sdk_hook(:pre_tool_use,
+        fn _ctx -> {:deny, "blocked"} end,
+        %{tool_name: "Bash"})
+
+      # Fire on Read* tools (regex)
+      hook = ClaudeEx.sdk_hook(:pre_tool_use,
+        fn _ctx -> :ok end,
+        %{tool_name: "Read.*"})
+  """
+  @spec sdk_hook(atom(), (map() -> :ok | {:deny, binary()}), map()) :: map()
+  def sdk_hook(event, callback, matcher) do
+    :agent_wire_hooks.hook(event, callback, matcher)
+  end
+
+  # -------------------------------------------------------------------
+  # Session History
+  # -------------------------------------------------------------------
+
+  @doc """
+  List past Claude Code session transcripts.
+
+  Scans `~/.claude/projects/` for JSONL transcript files and returns
+  metadata (session_id, model, timestamps) sorted by most recent first.
+
+  ## Options
+
+  - `:config_dir` — Override the Claude config directory (default: `~/.claude`)
+  - `:cwd` — Filter to sessions for a specific working directory
+  - `:limit` — Maximum number of sessions to return
+
+  ## Examples
+
+      {:ok, sessions} = ClaudeEx.list_sessions()
+      {:ok, sessions} = ClaudeEx.list_sessions(limit: 10)
+      {:ok, sessions} = ClaudeEx.list_sessions(cwd: "/my/project")
+  """
+  @spec list_sessions([{:config_dir, binary()} | {:cwd, binary()} | {:limit, pos_integer()}]) ::
+          {:ok, [map()]} | {:error, term()}
+  def list_sessions(opts \\ []) do
+    :claude_session_store.list_sessions(opts_to_map(opts))
+  end
+
+  @doc """
+  Read all messages from a past Claude Code session transcript.
+
+  Parses the full JSONL file and returns messages in conversation order.
+
+  ## Options
+
+  - `:config_dir` — Override the Claude config directory (default: `~/.claude`)
+
+  ## Examples
+
+      {:ok, messages} = ClaudeEx.get_session_messages("session-uuid-123")
+      Enum.each(messages, fn msg ->
+        IO.puts("\#{msg["type"]}: \#{inspect(msg["content"])}")
+      end)
+  """
+  @spec get_session_messages(binary(), [{:config_dir, binary()}]) ::
+          {:ok, [map()]} | {:error, term()}
+  def get_session_messages(session_id, opts \\ []) do
+    :claude_session_store.get_session_messages(session_id, opts_to_map(opts))
+  end
+
+  @doc """
+  Supervisor child specification for embedding a session.
+
+  ## Examples
+
+      children = [
+        {ClaudeEx, cli_path: "claude", work_dir: "/my/project"}
+      ]
+      Supervisor.start_link(children, strategy: :one_for_one)
+  """
+  @spec child_spec([session_opt()]) :: Supervisor.child_spec()
+  def child_spec(opts) do
+    map_opts = opts_to_map(opts)
+
+    id =
+      case Map.get(map_opts, :session_id) do
+        nil -> :claude_agent_session
+        sid -> {:claude_agent_session, sid}
+      end
+
+    %{
+      id: id,
+      start: {:claude_agent_session, :start_link, [map_opts]},
+      restart: :transient,
+      shutdown: 10_000,
+      type: :worker,
+      modules: [:claude_agent_session]
+    }
+  end
+
+  # -------------------------------------------------------------------
+  # Content Block Generalization (adapter-agnostic utilities)
+  # -------------------------------------------------------------------
+
+  @doc """
+  Normalize a list of messages from any adapter into a uniform flat stream.
+
+  Claude produces `assistant` messages with nested `content_blocks`.
+  All other adapters produce individual typed messages (text, tool_use, etc.).
+  This function flattens both into a uniform stream where each message has a
+  single, specific type — never nested content_blocks.
+
+  Context fields (uuid, session_id, model, timestamp) from assistant messages
+  are propagated to flattened children.
+
+  ## Examples
+
+      # Works identically regardless of which adapter produced messages:
+      ClaudeEx.normalize_messages(messages)
+      |> Enum.filter(& &1.type == :text)
+      |> Enum.map(& &1.content)
+      |> Enum.join("")
+  """
+  @spec normalize_messages([map()]) :: [map()]
+  def normalize_messages(messages) do
+    :agent_wire_content.normalize_messages(messages)
+  end
+
+  @doc """
+  Flatten an assistant message (with content_blocks) into individual messages.
+
+  Non-assistant messages pass through as a single-element list.
+  Context fields from the parent are propagated to children.
+  """
+  @spec flatten_assistant(map()) :: [map()]
+  def flatten_assistant(message) do
+    :agent_wire_content.flatten_assistant(message)
+  end
+
+  @doc """
+  Convert a list of flat messages into content_block() format.
+
+  Supported types (text, thinking, tool_use, tool_result) map to their
+  block equivalents. Other types are wrapped in raw blocks.
+  """
+  @spec messages_to_blocks([map()]) :: [content_block()]
+  def messages_to_blocks(messages) do
+    :agent_wire_content.messages_to_blocks(messages)
+  end
+
+  @doc """
+  Convert a single content_block into a flat message.
+  """
+  @spec block_to_message(content_block()) :: map()
+  def block_to_message(block) do
+    :agent_wire_content.block_to_message(block)
+  end
+
+  @doc """
+  Convert a single flat message into a content_block.
+  """
+  @spec message_to_block(map()) :: content_block()
+  def message_to_block(message) do
+    :agent_wire_content.message_to_block(message)
+  end
+
+  # -------------------------------------------------------------------
+  # Internal
+  # -------------------------------------------------------------------
+
+  defp opts_to_map(opts) when is_list(opts) do
+    Map.new(opts)
+  end
+
+  defp opts_to_map(opts) when is_map(opts), do: opts
+
+  # Normalize Erlang map keys (atoms) to a struct-like Elixir map.
+  # The Erlang side already uses atom keys, so this is mostly passthrough.
+  defp normalize_msg(msg) when is_map(msg), do: msg
+end

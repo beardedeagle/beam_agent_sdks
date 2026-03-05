@@ -1,0 +1,13 @@
+{application, claude_agent_sdk, [
+    {description, "Claude Code wire protocol adapter for BEAM — gen_statem over JSONL/stdio"},
+    {vsn, "0.1.0"},
+    {registered, []},
+    {applications, [
+        kernel,
+        stdlib,
+        telemetry,
+        agent_wire
+    ]},
+    {env, []},
+    {modules, []}
+]}.
