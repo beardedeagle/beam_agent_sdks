@@ -497,7 +497,8 @@ defmodule ClaudeEx do
       {:ok, _} = ClaudeEx.set_max_thinking_tokens(session, 8192)
   """
   @spec set_max_thinking_tokens(session(), pos_integer()) :: {:ok, term()} | {:error, term()}
-  def set_max_thinking_tokens(session, max_tokens) when is_integer(max_tokens) and max_tokens > 0 do
+  def set_max_thinking_tokens(session, max_tokens)
+      when is_integer(max_tokens) and max_tokens > 0 do
     :claude_agent_sdk.set_max_thinking_tokens(session, max_tokens)
   end
 

@@ -221,8 +221,7 @@ defmodule ClaudeExTest do
     test "mcp_tool/4 creates tool definition" do
       handler = fn input -> {:ok, [%{type: :text, text: input["msg"]}]} end
 
-      tool = ClaudeEx.mcp_tool("echo", "Echo input",
-        %{"type" => "object"}, handler)
+      tool = ClaudeEx.mcp_tool("echo", "Echo input", %{"type" => "object"}, handler)
 
       assert tool.name == "echo"
       assert tool.description == "Echo input"
@@ -230,8 +229,10 @@ defmodule ClaudeExTest do
     end
 
     test "mcp_server/2 creates server with tools" do
-      tool = ClaudeEx.mcp_tool("t1", "Test", %{"type" => "object"},
-        fn _ -> {:ok, [%{type: :text, text: "ok"}]} end)
+      tool =
+        ClaudeEx.mcp_tool("t1", "Test", %{"type" => "object"}, fn _ ->
+          {:ok, [%{type: :text, text: "ok"}]}
+        end)
 
       server = ClaudeEx.mcp_server("my-server", [tool])
 
@@ -250,16 +251,22 @@ defmodule ClaudeExTest do
     end
 
     test "sdk_hook/3 creates hook with matcher" do
-      hook = ClaudeEx.sdk_hook(:pre_tool_use, fn _ctx -> :ok end,
-        %{tool_name: "Bash"})
+      hook = ClaudeEx.sdk_hook(:pre_tool_use, fn _ctx -> :ok end, %{tool_name: "Bash"})
       assert hook.event == :pre_tool_use
       assert is_function(hook.callback, 1)
       assert hook.matcher == %{tool_name: "Bash"}
     end
 
     test "all six event types work" do
-      events = [:pre_tool_use, :post_tool_use, :stop,
-                :session_start, :session_end, :user_prompt_submit]
+      events = [
+        :pre_tool_use,
+        :post_tool_use,
+        :stop,
+        :session_start,
+        :session_end,
+        :user_prompt_submit
+      ]
+
       for event <- events do
         hook = ClaudeEx.sdk_hook(event, fn _ctx -> :ok end)
         assert hook.event == event
@@ -267,8 +274,12 @@ defmodule ClaudeExTest do
     end
 
     test "hook callback can return deny tuple" do
-      hook = ClaudeEx.sdk_hook(:pre_tool_use,
-        fn _ctx -> {:deny, "blocked"} end)
+      hook =
+        ClaudeEx.sdk_hook(
+          :pre_tool_use,
+          fn _ctx -> {:deny, "blocked"} end
+        )
+
       result = hook.callback.(%{event: :pre_tool_use})
       assert result == {:deny, "blocked"}
     end
@@ -281,12 +292,21 @@ defmodule ClaudeExTest do
 
       # Write a mock session file (json:encode returns iodata, convert to binary)
       lines = [
-        IO.iodata_to_binary(:json.encode(%{"type" => "system", "subtype" => "init",
-                        "content" => "ready", "model" => "claude-sonnet-4-20250514"})),
+        IO.iodata_to_binary(
+          :json.encode(%{
+            "type" => "system",
+            "subtype" => "init",
+            "content" => "ready",
+            "model" => "claude-sonnet-4-20250514"
+          })
+        ),
         IO.iodata_to_binary(:json.encode(%{"type" => "user", "content" => "hello"}))
       ]
-      File.write!(tmp <> "/projects/test-proj/sess-abc.jsonl",
-        Enum.join(lines, "\n") <> "\n")
+
+      File.write!(
+        tmp <> "/projects/test-proj/sess-abc.jsonl",
+        Enum.join(lines, "\n") <> "\n"
+      )
 
       on_exit(fn -> File.rm_rf!(tmp) end)
       %{tmp: tmp}
@@ -300,8 +320,11 @@ defmodule ClaudeExTest do
     end
 
     test "get_session_messages/2 parses transcript", %{tmp: tmp} do
-      {:ok, messages} = ClaudeEx.get_session_messages("sess-abc",
-        config_dir: tmp)
+      {:ok, messages} =
+        ClaudeEx.get_session_messages("sess-abc",
+          config_dir: tmp
+        )
+
       assert length(messages) == 2
       [first | _] = messages
       assert first["type"] == "system"
@@ -309,7 +332,7 @@ defmodule ClaudeExTest do
 
     test "get_session_messages/2 returns error for missing", %{tmp: tmp} do
       assert {:error, :not_found} =
-        ClaudeEx.get_session_messages("nonexistent", config_dir: tmp)
+               ClaudeEx.get_session_messages("nonexistent", config_dir: tmp)
     end
   end
 
@@ -360,10 +383,14 @@ defmodule ClaudeExTest do
     test "flattens assistant message with content_blocks inline" do
       messages = [
         %{type: :system, content: "init"},
-        %{type: :assistant, session_id: "s1", content_blocks: [
-          %{type: :thinking, thinking: "hmm"},
-          %{type: :text, text: "hello"}
-        ]},
+        %{
+          type: :assistant,
+          session_id: "s1",
+          content_blocks: [
+            %{type: :thinking, thinking: "hmm"},
+            %{type: :text, text: "hello"}
+          ]
+        },
         %{type: :result, content: ""}
       ]
 
@@ -390,10 +417,13 @@ defmodule ClaudeExTest do
 
   describe "flatten_assistant/1" do
     test "expands content_blocks into individual messages" do
-      msg = %{type: :assistant, content_blocks: [
-        %{type: :text, text: "hi"},
-        %{type: :tool_use, id: "tu_1", name: "bash", input: %{}}
-      ]}
+      msg = %{
+        type: :assistant,
+        content_blocks: [
+          %{type: :text, text: "hi"},
+          %{type: :tool_use, id: "tu_1", name: "bash", input: %{}}
+        ]
+      }
 
       flat = ClaudeEx.flatten_assistant(msg)
       assert length(flat) == 2

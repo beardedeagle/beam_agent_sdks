@@ -178,10 +178,13 @@ defmodule GeminiExTest do
   describe "normalize_messages/1" do
     test "flattens assistant messages inline" do
       messages = [
-        %{type: :assistant, content_blocks: [
-          %{type: :thinking, thinking: "hmm"},
-          %{type: :text, text: "answer"}
-        ]},
+        %{
+          type: :assistant,
+          content_blocks: [
+            %{type: :thinking, thinking: "hmm"},
+            %{type: :text, text: "answer"}
+          ]
+        },
         %{type: :result}
       ]
 

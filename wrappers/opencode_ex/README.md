@@ -232,3 +232,9 @@ OpencodeEx.send_command(session, "command_name", %{"param" => "value"})
 
 See the [opencode_client README](../../apps/opencode_client/README.md)
 for the full omissions table.
+
+## Shared Foundation
+
+MCP servers, lifecycle hooks, content blocks, and telemetry are provided by
+[AgentWire](../agent_wire_ex/README.md) — the shared Elixir foundation used
+by all five adapter wrappers.

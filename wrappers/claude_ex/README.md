@@ -223,3 +223,9 @@ not directly wrapped, use the Erlang modules:
 
 See the [claude_agent_sdk README](../../apps/claude_agent_sdk/README.md)
 for the full omissions table.
+
+## Shared Foundation
+
+MCP servers, lifecycle hooks, content blocks, and telemetry are provided by
+[AgentWire](../agent_wire_ex/README.md) — the shared Elixir foundation used
+by all five adapter wrappers.

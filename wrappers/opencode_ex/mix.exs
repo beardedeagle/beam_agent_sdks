@@ -1,14 +1,22 @@
 defmodule OpencodeEx.MixProject do
   use Mix.Project
 
+  @version "0.1.0"
+  @source_url "https://github.com/beardedeagle/beam_agent_sdks"
+
   def project do
     [
       app: :opencode_ex,
-      version: "0.1.0",
+      version: @version,
       elixir: "~> 1.17",
       start_permanent: Mix.env() == :prod,
       deps: deps(),
-      elixirc_options: [warnings_as_errors: true]
+      docs: docs(),
+      package: package(),
+      description: "Elixir wrapper for the OpenCode HTTP agent SDK (Erlang/OTP)",
+      elixirc_paths: elixirc_paths(Mix.env()),
+      elixirc_options: [warnings_as_errors: true],
+      test_coverage: [summary: [threshold: 80]]
     ]
   end
 
@@ -18,10 +26,27 @@ defmodule OpencodeEx.MixProject do
     ]
   end
 
+  defp elixirc_paths(_), do: ["lib"]
+
   defp deps do
     [
       {:opencode_client, path: "../../apps/opencode_client"},
-      {:agent_wire, path: "../../apps/agent_wire"}
+      {:agent_wire, path: "../../apps/agent_wire"},
+      {:ex_doc, "~> 0.35", only: :dev, runtime: false}
+    ]
+  end
+
+  defp docs do
+    [
+      main: "OpencodeEx",
+      source_url: @source_url,
+      extras: ["README.md"]
+    ]
+  end
+
+  defp package do
+    [
+      links: %{"GitHub" => @source_url}
     ]
   end
 end

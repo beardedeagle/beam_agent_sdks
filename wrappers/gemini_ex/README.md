@@ -169,3 +169,9 @@ GeminiEx.start_session(
 
 See the [gemini_cli_client README](../../apps/gemini_cli_client/README.md)
 for the full omissions table.
+
+## Shared Foundation
+
+MCP servers, lifecycle hooks, content blocks, and telemetry are provided by
+[AgentWire](../agent_wire_ex/README.md) — the shared Elixir foundation used
+by all five adapter wrappers.

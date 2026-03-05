@@ -110,17 +110,17 @@ defmodule OpencodeEx do
           else
             case :gen_statem.call(sess, {:receive_message, ref}, remaining) do
               {:ok, %{type: :result} = msg} -> {[msg], {:done, sess, ref, dl}}
-              {:ok, %{type: :error} = msg}  -> {[msg], {:done, sess, ref, dl}}
-              {:ok, msg}                    -> {[msg], {sess, ref, dl}}
-              {:error, :complete}           -> {:halt, {sess, ref, dl}}
-              {:error, reason}              -> raise "Stream error: #{inspect(reason)}"
+              {:ok, %{type: :error} = msg} -> {[msg], {:done, sess, ref, dl}}
+              {:ok, msg} -> {[msg], {sess, ref, dl}}
+              {:error, :complete} -> {:halt, {sess, ref, dl}}
+              {:error, reason} -> raise "Stream error: #{inspect(reason)}"
             end
           end
       end,
       fn
         {:done, _, _, _} -> :ok
-        {_, _, _}        -> :ok
-        _                -> :ok
+        {_, _, _} -> :ok
+        _ -> :ok
       end
     )
   end
@@ -138,7 +138,7 @@ defmodule OpencodeEx do
     Stream.resource(
       fn ->
         case :gen_statem.call(session, {:send_query, prompt, params}, timeout) do
-          {:ok, ref}       -> {session, ref, deadline}
+          {:ok, ref} -> {session, ref, deadline}
           {:error, _} = err -> {:error_init, err}
         end
       end,
@@ -157,10 +157,10 @@ defmodule OpencodeEx do
           else
             case :gen_statem.call(sess, {:receive_message, ref}, remaining) do
               {:ok, %{type: :result} = msg} -> {[{:ok, msg}], :halt_state}
-              {:ok, %{type: :error} = msg}  -> {[{:ok, msg}], :halt_state}
-              {:ok, msg}                    -> {[{:ok, msg}], {sess, ref, dl}}
-              {:error, :complete}           -> {:halt, {sess, ref, dl}}
-              {:error, reason}              -> {[{:error, reason}], :halt_state}
+              {:ok, %{type: :error} = msg} -> {[{:ok, msg}], :halt_state}
+              {:ok, msg} -> {[{:ok, msg}], {sess, ref, dl}}
+              {:error, :complete} -> {:halt, {sess, ref, dl}}
+              {:error, reason} -> {[{:error, reason}], :halt_state}
             end
           end
       end,
@@ -229,12 +229,12 @@ defmodule OpencodeEx do
       end
 
     %{
-      id:       id,
-      start:    {:opencode_session, :start_link, [map_opts]},
-      restart:  :transient,
+      id: id,
+      start: {:opencode_session, :start_link, [map_opts]},
+      restart: :transient,
       shutdown: 10_000,
-      type:     :worker,
-      modules:  [:opencode_session]
+      type: :worker,
+      modules: [:opencode_session]
     }
   end
 

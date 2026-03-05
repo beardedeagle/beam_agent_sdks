@@ -1,4 +1,4 @@
-defmodule ClaudeEx.MixProject do
+defmodule AgentWireEx.MixProject do
   use Mix.Project
 
   @version "0.1.0"
@@ -6,14 +6,14 @@ defmodule ClaudeEx.MixProject do
 
   def project do
     [
-      app: :claude_ex,
+      app: :agent_wire_ex,
       version: @version,
       elixir: "~> 1.17",
       start_permanent: Mix.env() == :prod,
       deps: deps(),
       docs: docs(),
       package: package(),
-      description: "Elixir wrapper for the Claude Code agent SDK (Erlang/OTP)",
+      description: "Idiomatic Elixir wrapper for the agent_wire shared foundation",
       elixirc_paths: elixirc_paths(Mix.env()),
       elixirc_options: [warnings_as_errors: true],
       test_coverage: [summary: [threshold: 80]]
@@ -22,8 +22,7 @@ defmodule ClaudeEx.MixProject do
 
   def application do
     [
-      extra_applications: [:logger],
-      mod: {ClaudeEx.Application, []}
+      extra_applications: [:logger]
     ]
   end
 
@@ -31,7 +30,6 @@ defmodule ClaudeEx.MixProject do
 
   defp deps do
     [
-      {:claude_agent_sdk, path: "../../apps/claude_agent_sdk"},
       {:agent_wire, path: "../../apps/agent_wire"},
       {:ex_doc, "~> 0.35", only: :dev, runtime: false}
     ]
@@ -39,7 +37,7 @@ defmodule ClaudeEx.MixProject do
 
   defp docs do
     [
-      main: "ClaudeEx",
+      main: "AgentWire",
       source_url: @source_url,
       extras: ["README.md"]
     ]

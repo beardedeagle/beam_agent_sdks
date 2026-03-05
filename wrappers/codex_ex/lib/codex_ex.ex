@@ -164,15 +164,17 @@ defmodule CodexEx do
   @doc "Start a new conversation thread."
   @spec thread_start(pid(), map()) :: {:ok, map()} | {:error, term()}
   def thread_start(session, opts \\ %{}) do
-    :codex_session.send_control(session, "thread/start",
-      :codex_protocol.thread_start_params(opts))
+    :codex_session.send_control(
+      session,
+      "thread/start",
+      :codex_protocol.thread_start_params(opts)
+    )
   end
 
   @doc "Resume an existing thread by ID."
   @spec thread_resume(pid(), binary()) :: {:ok, map()} | {:error, term()}
   def thread_resume(session, thread_id) do
-    :codex_session.send_control(session, "thread/resume",
-      %{"threadId" => thread_id})
+    :codex_session.send_control(session, "thread/resume", %{"threadId" => thread_id})
   end
 
   @doc "List all threads."

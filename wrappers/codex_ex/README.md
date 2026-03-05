@@ -173,3 +173,9 @@ signatures are:
 
 - `CodexEx.start_session/1` -- starts `codex_session` (app-server transport)
 - `CodexEx.start_exec/1` -- starts `codex_exec` (one-shot JSONL transport)
+
+## Shared Foundation
+
+MCP servers, lifecycle hooks, content blocks, and telemetry are provided by
+[AgentWire](../agent_wire_ex/README.md) — the shared Elixir foundation used
+by all five adapter wrappers.

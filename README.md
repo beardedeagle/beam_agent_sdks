@@ -12,6 +12,10 @@ application.
                               +-------------+
                               | agent_wire  |  Shared types, JSONL, hooks, MCP, telemetry
                               +------+------+
+                                     |
+                              +------+------+
+                              | AgentWire   |  Elixir wrapper (MCP, hooks, content, telemetry)
+                              +------+------+
        +--------------+--------------++--------------+--------------+
        |              |              |               |              |
 +------+------+ +-----+------+ +----+-------+ +-----+------+ +----+-------+
@@ -267,6 +271,7 @@ options, examples, and intentional omissions with workarounds:
 - [copilot_client](apps/copilot_client/README.md) — GitHub Copilot adapter
 
 **Elixir Wrappers:**
+- [AgentWire](wrappers/agent_wire_ex/README.md) — Shared foundation (MCP, hooks, content, telemetry)
 - [ClaudeEx](wrappers/claude_ex/README.md)
 - [CodexEx](wrappers/codex_ex/README.md)
 - [GeminiEx](wrappers/gemini_ex/README.md)

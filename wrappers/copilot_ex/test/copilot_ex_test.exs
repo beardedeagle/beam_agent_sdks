@@ -204,10 +204,13 @@ defmodule CopilotExTest do
   describe "normalize_messages/1" do
     test "flattens assistant messages inline" do
       messages = [
-        %{type: :assistant, content_blocks: [
-          %{type: :text, text: "from copilot"},
-          %{type: :tool_use, id: "tu_1", name: "read", input: %{}}
-        ]},
+        %{
+          type: :assistant,
+          content_blocks: [
+            %{type: :text, text: "from copilot"},
+            %{type: :tool_use, id: "tu_1", name: "read", input: %{}}
+          ]
+        },
         %{type: :result}
       ]
 

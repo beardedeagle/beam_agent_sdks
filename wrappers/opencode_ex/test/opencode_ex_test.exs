@@ -158,8 +158,7 @@ defmodule OpencodeExTest do
   end
 
   test "sdk_hook/3 returns a hook def map with matcher" do
-    hook = OpencodeEx.sdk_hook(:pre_tool_use, fn _ctx -> :ok end,
-                                %{tool_name: "Bash"})
+    hook = OpencodeEx.sdk_hook(:pre_tool_use, fn _ctx -> :ok end, %{tool_name: "Bash"})
     assert is_map(hook)
     assert hook.event == :pre_tool_use
     assert Map.has_key?(hook, :matcher)
@@ -190,9 +189,12 @@ defmodule OpencodeExTest do
   describe "normalize_messages/1" do
     test "flattens assistant messages inline" do
       messages = [
-        %{type: :assistant, content_blocks: [
-          %{type: :text, text: "hello from opencode"}
-        ]},
+        %{
+          type: :assistant,
+          content_blocks: [
+            %{type: :text, text: "hello from opencode"}
+          ]
+        },
         %{type: :result}
       ]
 

@@ -108,9 +108,12 @@ defmodule CodexExTest do
   describe "normalize_messages/1" do
     test "flattens assistant messages inline" do
       messages = [
-        %{type: :assistant, content_blocks: [
-          %{type: :text, text: "hello"}
-        ]},
+        %{
+          type: :assistant,
+          content_blocks: [
+            %{type: :text, text: "hello"}
+          ]
+        },
         %{type: :result}
       ]
 
