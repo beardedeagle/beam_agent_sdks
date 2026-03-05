@@ -1,0 +1,12 @@
+{application, agent_wire, [
+    {description, "Shared foundation for BEAM agent SDK wire protocols"},
+    {vsn, "0.1.0"},
+    {registered, []},
+    {applications, [
+        kernel,
+        stdlib,
+        telemetry
+    ]},
+    {env, []},
+    {modules, []}
+]}.

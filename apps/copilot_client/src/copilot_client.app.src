@@ -1,0 +1,13 @@
+{application, copilot_client, [
+    {description, "GitHub Copilot CLI wire protocol adapter for BEAM — gen_statem over JSON-RPC/Content-Length"},
+    {vsn, "0.1.0"},
+    {registered, []},
+    {applications, [
+        kernel,
+        stdlib,
+        telemetry,
+        agent_wire
+    ]},
+    {env, []},
+    {modules, []}
+]}.
