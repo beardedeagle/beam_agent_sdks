@@ -167,5 +167,5 @@ GeminiEx.start_session(
 )
 ```
 
-See the [gemini_cli_client README](../../../apps/gemini_cli_client/README.md)
+See the [gemini_cli_client README](../../apps/gemini_cli_client/README.md)
 for the full omissions table.

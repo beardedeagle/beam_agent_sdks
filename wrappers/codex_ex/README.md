@@ -162,7 +162,7 @@ not directly wrapped:
 :gen_statem.call(session, {:custom_op, args}, 5_000)
 ```
 
-See the [codex_app_server README](../../../apps/codex_app_server/README.md)
+See the [codex_app_server README](../../apps/codex_app_server/README.md)
 for the full omissions table.
 
 ## Note on Function Names

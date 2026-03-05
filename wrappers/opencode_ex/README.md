@@ -230,5 +230,5 @@ OpencodeEx.send_command(session, "command_name", %{"param" => "value"})
 | Session summarize | Use `send_command/3` |
 | MCP server management | Configure via opencode CLI |
 
-See the [opencode_client README](../../../apps/opencode_client/README.md)
+See the [opencode_client README](../../apps/opencode_client/README.md)
 for the full omissions table.

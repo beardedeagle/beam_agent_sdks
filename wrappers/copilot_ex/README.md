@@ -102,7 +102,7 @@ CopilotEx.child_spec(opts) :: Supervisor.child_spec()
 ## Session Options
 
 Accepts keyword lists or maps. All options from the Erlang
-[agent_wire session_opts()](../../../apps/agent_wire/README.md) are supported:
+[agent_wire session_opts()](../../apps/agent_wire/README.md) are supported:
 
 ```elixir
 CopilotEx.start_session(
@@ -230,5 +230,5 @@ not directly wrapped, use the Erlang modules:
 :gen_statem.call(session, {:custom_op, args}, 5_000)
 ```
 
-See the [copilot_client README](../../../apps/copilot_client/README.md)
+See the [copilot_client README](../../apps/copilot_client/README.md)
 for the full omissions table.
