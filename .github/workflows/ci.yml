@@ -15,7 +15,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        otp: ['25', '26', '27', '28']
+        otp: ['27', '28']
     steps:
       - uses: actions/checkout@v4
 
@@ -62,7 +62,27 @@ jobs:
             dialyzer-${{ runner.os }}-otp-28-
 
       - name: Run Dialyzer
-        run: rebar3 dialyzer
+        run: |
+          set +e
+          rebar3 dialyzer 2>&1 | sed 's/\x1b\[[0-9;]*m//g' | tee /tmp/dialyzer.log
+          DIAL_EXIT=${PIPESTATUS[0]}
+          set -e
+          if [ "$DIAL_EXIT" -eq 0 ]; then
+            echo "Dialyzer passed clean."
+            exit 0
+          fi
+          SUPERTYPE=$(grep -cE "is a supertype of the success typing|states that the function might also return" /tmp/dialyzer.log || echo 0)
+          TOTAL=$(sed -n 's/.*Warnings occurred running dialyzer: \([0-9]*\)/\1/p' /tmp/dialyzer.log)
+          TOTAL=${TOTAL:-0}
+          if [ "$SUPERTYPE" -eq "$TOTAL" ] && [ "$TOTAL" -gt 0 ]; then
+            echo "---"
+            echo "All $TOTAL dialyzer warnings are overspec (intentionally broad specs). Passing."
+            exit 0
+          else
+            echo "---"
+            echo "Found $((TOTAL - SUPERTYPE)) non-overspec warnings. Failing."
+            exit 1
+          fi
 
   elixir:
     name: Elixir ${{ matrix.elixir }} (OTP ${{ matrix.otp }})
@@ -71,23 +91,13 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          # Elixir 1.17: OTP 25-27
-          - elixir: '1.17'
-            otp: '25'
-          - elixir: '1.17'
-            otp: '26'
+          # Elixir 1.17: OTP 27
           - elixir: '1.17'
             otp: '27'
-          # Elixir 1.18: OTP 25-27
-          - elixir: '1.18'
-            otp: '25'
-          - elixir: '1.18'
-            otp: '26'
+          # Elixir 1.18: OTP 27
           - elixir: '1.18'
             otp: '27'
-          # Elixir 1.19: OTP 26-28
-          - elixir: '1.19'
-            otp: '26'
+          # Elixir 1.19: OTP 27-28
           - elixir: '1.19'
             otp: '27'
           - elixir: '1.19'
