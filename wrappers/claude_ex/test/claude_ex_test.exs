@@ -3,6 +3,12 @@ defmodule ClaudeExTest do
 
   @moduletag :claude_ex
 
+  # Ensure module is loaded before function_exported? checks
+  setup_all do
+    {:module, _} = Code.ensure_loaded(ClaudeEx)
+    :ok
+  end
+
   describe "start_session/1" do
     @tag capture_log: true
     test "fails with bad CLI path" do
