@@ -32,6 +32,7 @@ defmodule CodexEx.MixProject do
     [
       {:codex_app_server, path: "../../apps/codex_app_server"},
       {:agent_wire, path: "../../apps/agent_wire"},
+      {:agent_wire_ex, path: "../agent_wire_ex"},
       {:ex_doc, "~> 0.35", only: :dev, runtime: false}
     ]
   end

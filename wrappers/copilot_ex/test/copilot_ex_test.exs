@@ -242,4 +242,117 @@ defmodule CopilotExTest do
       assert block == CopilotEx.message_to_block(CopilotEx.block_to_message(block))
     end
   end
+
+  # ── System Init Convenience Accessors ──────────────────────────────
+
+  describe "system init accessors" do
+    test "list_tools/1 is exported" do
+      assert function_exported?(CopilotEx, :list_tools, 1)
+    end
+
+    test "list_skills/1 is exported" do
+      assert function_exported?(CopilotEx, :list_skills, 1)
+    end
+
+    test "list_plugins/1 is exported" do
+      assert function_exported?(CopilotEx, :list_plugins, 1)
+    end
+
+    test "list_mcp_servers/1 is exported" do
+      assert function_exported?(CopilotEx, :list_mcp_servers, 1)
+    end
+
+    test "list_agents/1 is exported" do
+      assert function_exported?(CopilotEx, :list_agents, 1)
+    end
+
+    test "cli_version/1 is exported" do
+      assert function_exported?(CopilotEx, :cli_version, 1)
+    end
+
+    test "working_directory/1 is exported" do
+      assert function_exported?(CopilotEx, :working_directory, 1)
+    end
+
+    test "output_style/1 is exported" do
+      assert function_exported?(CopilotEx, :output_style, 1)
+    end
+
+    test "api_key_source/1 is exported" do
+      assert function_exported?(CopilotEx, :api_key_source, 1)
+    end
+
+    test "active_betas/1 is exported" do
+      assert function_exported?(CopilotEx, :active_betas, 1)
+    end
+
+    test "current_model/1 is exported" do
+      assert function_exported?(CopilotEx, :current_model, 1)
+    end
+
+    test "current_permission_mode/1 is exported" do
+      assert function_exported?(CopilotEx, :current_permission_mode, 1)
+    end
+  end
+
+  # ── Todo Extraction ────────────────────────────────────────────────
+
+  describe "todo extraction" do
+    test "extract_todos/1 extracts from assistant messages" do
+      messages = [
+        %{
+          type: :assistant,
+          content_blocks: [
+            %{
+              type: :tool_use,
+              name: "TodoWrite",
+              input: %{"content" => "Task 1", "status" => "pending"}
+            }
+          ]
+        }
+      ]
+
+      todos = CopilotEx.extract_todos(messages)
+      assert length(todos) == 1
+      assert hd(todos).content == "Task 1"
+      assert hd(todos).status == :pending
+    end
+
+    test "filter_todos/2 filters by status" do
+      todos = [
+        %{content: "A", status: :pending},
+        %{content: "B", status: :completed}
+      ]
+
+      result = CopilotEx.filter_todos(todos, :completed)
+      assert length(result) == 1
+      assert hd(result).content == "B"
+    end
+
+    test "todo_summary/1 counts by status" do
+      todos = [
+        %{content: "A", status: :pending},
+        %{content: "B", status: :completed},
+        %{content: "C", status: :completed}
+      ]
+
+      summary = CopilotEx.todo_summary(todos)
+      assert summary.pending == 1
+      assert summary.completed == 2
+      assert summary.total == 3
+    end
+  end
+
+  describe "MCP constructors" do
+    test "mcp_tool/4 creates a tool definition" do
+      tool = CopilotEx.mcp_tool("test", "A test", %{}, fn _ -> {:ok, []} end)
+      assert tool.name == "test"
+    end
+
+    test "mcp_server/2 creates a server definition" do
+      tool = CopilotEx.mcp_tool("t", "d", %{}, fn _ -> {:ok, []} end)
+      server = CopilotEx.mcp_server("my-server", [tool])
+      assert server.name == "my-server"
+    end
+  end
 end

@@ -4,5 +4,11 @@
     {registered, []},
     {applications, [kernel, stdlib, telemetry, agent_wire, gun]},
     {env, []},
-    {modules, []}
+    {modules, [
+        opencode_client,
+        opencode_http,
+        opencode_protocol,
+        opencode_session,
+        opencode_sse
+    ]}
 ]}.

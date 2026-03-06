@@ -9,5 +9,11 @@
         agent_wire
     ]},
     {env, []},
-    {modules, []}
+    {modules, [
+        codex_app_server,
+        codex_exec,
+        codex_port_utils,
+        codex_protocol,
+        codex_session
+    ]}
 ]}.

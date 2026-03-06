@@ -240,21 +240,21 @@ defmodule OpencodeEx do
 
   # ── OpenCode-specific REST Operations ─────────────────────────────
 
-  @doc "List all active sessions on the OpenCode server."
-  @spec list_sessions(pid()) :: {:ok, [map()]} | {:error, term()}
-  def list_sessions(session) do
+  @doc "List all active sessions on the OpenCode server (native REST)."
+  @spec list_server_sessions(pid()) :: {:ok, [map()]} | {:error, term()}
+  def list_server_sessions(session) do
     :gen_statem.call(session, :list_sessions, 10_000)
   end
 
-  @doc "Get details for a specific session by ID."
-  @spec get_session(pid(), binary()) :: {:ok, map()} | {:error, term()}
-  def get_session(session, id) do
+  @doc "Get details for a specific session by ID from the OpenCode server (native REST)."
+  @spec get_server_session(pid(), binary()) :: {:ok, map()} | {:error, term()}
+  def get_server_session(session, id) do
     :gen_statem.call(session, {:get_session, id}, 10_000)
   end
 
-  @doc "Delete a session by ID."
-  @spec delete_session(pid(), binary()) :: {:ok, term()} | {:error, term()}
-  def delete_session(session, id) do
+  @doc "Delete a session by ID on the OpenCode server (native REST)."
+  @spec delete_server_session(pid(), binary()) :: {:ok, term()} | {:error, term()}
+  def delete_server_session(session, id) do
     :gen_statem.call(session, {:delete_session, id}, 10_000)
   end
 
@@ -308,8 +308,259 @@ defmodule OpencodeEx do
   @spec message_to_block(map()) :: map()
   def message_to_block(message), do: :agent_wire_content.message_to_block(message)
 
+  # ── Additional Session Control ──────────────────────────────────────
+
+  @doc """
+  Interrupt the current active query.
+
+  Sends an interrupt signal to the session.
+  """
+  @spec interrupt(pid()) :: :ok | {:error, term()}
+  def interrupt(session) do
+    :gen_statem.call(session, :interrupt, 10_000)
+  end
+
+  @doc "Change the permission mode at runtime via universal control."
+  @spec set_permission_mode(pid(), binary()) :: {:ok, map()}
+  def set_permission_mode(session, mode) do
+    :opencode_client.set_permission_mode(session, mode)
+  end
+
+  @doc "Send a raw control message via universal control dispatch."
+  @spec send_control(pid(), binary(), map()) :: {:ok, term()} | {:error, term()}
+  def send_control(session, method, params \\ %{}) do
+    :opencode_client.send_control(session, method, params)
+  end
+
+  # ── SDK MCP Server Constructors ─────────────────────────────────────
+
+  @doc "Create an in-process MCP tool definition."
+  @spec mcp_tool(binary(), binary(), map(), (map() -> {:ok, list()} | {:error, binary()})) ::
+          map()
+  def mcp_tool(name, description, input_schema, handler) do
+    :agent_wire_mcp.tool(name, description, input_schema, handler)
+  end
+
+  @doc "Create an in-process MCP server definition."
+  @spec mcp_server(binary(), [map()]) :: map()
+  def mcp_server(name, tools) do
+    :agent_wire_mcp.server(name, tools)
+  end
+
+  # ── System Init Convenience Accessors ───────────────────────────────
+
+  @doc "List available tools from the system init data."
+  @spec list_tools(pid()) :: {:ok, list()} | {:error, term()}
+  def list_tools(session), do: extract_system_field(session, :tools, [])
+
+  @doc "List available skills from the system init data."
+  @spec list_skills(pid()) :: {:ok, list()} | {:error, term()}
+  def list_skills(session), do: extract_system_field(session, :skills, [])
+
+  @doc "List available plugins from the system init data."
+  @spec list_plugins(pid()) :: {:ok, list()} | {:error, term()}
+  def list_plugins(session), do: extract_system_field(session, :plugins, [])
+
+  @doc "List configured MCP servers from the system init data."
+  @spec list_mcp_servers(pid()) :: {:ok, list()} | {:error, term()}
+  def list_mcp_servers(session), do: extract_system_field(session, :mcp_servers, [])
+
+  @doc "List available agents from the system init data."
+  @spec list_agents(pid()) :: {:ok, list()} | {:error, term()}
+  def list_agents(session), do: extract_system_field(session, :agents, [])
+
+  @doc "Get the CLI version from the system init data."
+  @spec cli_version(pid()) :: {:ok, binary() | nil} | {:error, term()}
+  def cli_version(session), do: extract_system_field(session, :claude_code_version, nil)
+
+  @doc "Get the working directory from the system init data."
+  @spec working_directory(pid()) :: {:ok, binary() | nil} | {:error, term()}
+  def working_directory(session), do: extract_system_field(session, :cwd, nil)
+
+  @doc "Get the output style from the system init data."
+  @spec output_style(pid()) :: {:ok, binary() | nil} | {:error, term()}
+  def output_style(session), do: extract_system_field(session, :output_style, nil)
+
+  @doc "Get the API key source from the system init data."
+  @spec api_key_source(pid()) :: {:ok, binary() | nil} | {:error, term()}
+  def api_key_source(session), do: extract_system_field(session, :api_key_source, nil)
+
+  @doc "List active beta features from the system init data."
+  @spec active_betas(pid()) :: {:ok, list()} | {:error, term()}
+  def active_betas(session), do: extract_system_field(session, :betas, [])
+
+  @doc """
+  Get the current model from session info.
+
+  Extracts from the session's model field or system init data.
+  """
+  @spec current_model(pid()) :: {:ok, binary() | nil} | {:error, term()}
+  def current_model(session) do
+    case session_info(session) do
+      {:ok, %{model: model}} -> {:ok, model}
+      {:ok, %{system_info: %{model: model}}} -> {:ok, model}
+      {:ok, _} -> {:ok, nil}
+      {:error, _} = err -> err
+    end
+  end
+
+  @doc "Get the current permission mode from session info."
+  @spec current_permission_mode(pid()) :: {:ok, atom() | binary() | nil} | {:error, term()}
+  def current_permission_mode(session) do
+    extract_system_field(session, :permission_mode, nil)
+  end
+
+  # ── Universal: Session Store (agent_wire) ──────────────────────────
+
+  @doc "List all tracked sessions."
+  @spec list_sessions() :: {:ok, [map()]}
+  def list_sessions, do: :opencode_client.list_sessions()
+
+  @doc "List sessions with filters."
+  @spec list_sessions(map()) :: {:ok, [map()]}
+  def list_sessions(opts) when is_map(opts), do: :opencode_client.list_sessions(opts)
+
+  @doc "Get messages for a session."
+  @spec get_session_messages(binary()) :: {:ok, [map()]} | {:error, :not_found}
+  def get_session_messages(session_id), do: :opencode_client.get_session_messages(session_id)
+
+  @doc "Get messages with options."
+  @spec get_session_messages(binary(), map()) :: {:ok, [map()]} | {:error, :not_found}
+  def get_session_messages(session_id, opts),
+    do: :opencode_client.get_session_messages(session_id, opts)
+
+  @doc "Get session metadata by ID."
+  @spec get_session(binary()) :: {:ok, map()} | {:error, :not_found}
+  def get_session(session_id), do: :opencode_client.get_session(session_id)
+
+  @doc "Delete a session and its messages."
+  @spec delete_session(binary()) :: :ok
+  def delete_session(session_id), do: :opencode_client.delete_session(session_id)
+
+  # ── Universal: Thread Management (agent_wire) ──────────────────────
+
+  @doc "Start a new conversation thread."
+  @spec thread_start(pid(), map()) :: {:ok, map()}
+  def thread_start(session, opts \\ %{}),
+    do: :opencode_client.thread_start(session, opts)
+
+  @doc "Resume an existing thread."
+  @spec thread_resume(pid(), binary()) :: {:ok, map()} | {:error, :not_found}
+  def thread_resume(session, thread_id),
+    do: :opencode_client.thread_resume(session, thread_id)
+
+  @doc "List all threads for this session."
+  @spec thread_list(pid()) :: {:ok, [map()]}
+  def thread_list(session), do: :opencode_client.thread_list(session)
+
+  # ── Universal: MCP Management (agent_wire) ─────────────────────────
+
+  @doc "Get status of all MCP servers."
+  @spec mcp_server_status(pid()) :: {:ok, map()}
+  def mcp_server_status(session),
+    do: :opencode_client.mcp_server_status(session)
+
+  @doc "Replace MCP server configurations."
+  @spec set_mcp_servers(pid(), [map()]) :: {:ok, term()} | {:error, term()}
+  def set_mcp_servers(session, servers),
+    do: :opencode_client.set_mcp_servers(session, servers)
+
+  @doc "Reconnect a failed MCP server."
+  @spec reconnect_mcp_server(pid(), binary()) :: {:ok, term()} | {:error, term()}
+  def reconnect_mcp_server(session, server_name),
+    do: :opencode_client.reconnect_mcp_server(session, server_name)
+
+  @doc "Enable or disable an MCP server."
+  @spec toggle_mcp_server(pid(), binary(), boolean()) :: {:ok, term()} | {:error, term()}
+  def toggle_mcp_server(session, server_name, enabled),
+    do: :opencode_client.toggle_mcp_server(session, server_name, enabled)
+
+  # ── Universal: Init Response Accessors ─────────────────────────────
+
+  @doc "List available slash commands."
+  @spec supported_commands(pid()) :: {:ok, list()} | {:error, term()}
+  def supported_commands(session), do: :opencode_client.supported_commands(session)
+
+  @doc "List available models."
+  @spec supported_models(pid()) :: {:ok, list()} | {:error, term()}
+  def supported_models(session), do: :opencode_client.supported_models(session)
+
+  @doc "List available agents."
+  @spec supported_agents(pid()) :: {:ok, list()} | {:error, term()}
+  def supported_agents(session), do: :opencode_client.supported_agents(session)
+
+  @doc "Get account information."
+  @spec account_info(pid()) :: {:ok, map()} | {:error, term()}
+  def account_info(session), do: :opencode_client.account_info(session)
+
+  # ── Universal: Session Control (agent_wire) ───────────────────────
+
+  @doc "Set maximum thinking tokens via universal control."
+  @spec set_max_thinking_tokens(pid(), pos_integer()) :: {:ok, map()}
+  def set_max_thinking_tokens(session, max_tokens) do
+    :opencode_client.set_max_thinking_tokens(session, max_tokens)
+  end
+
+  @doc "Revert file changes to a checkpoint via universal checkpointing."
+  @spec rewind_files(pid(), binary()) :: :ok | {:error, :not_found | term()}
+  def rewind_files(session, checkpoint_uuid) do
+    :opencode_client.rewind_files(session, checkpoint_uuid)
+  end
+
+  @doc "Stop a running agent task via universal task tracking."
+  @spec stop_task(pid(), binary()) :: :ok | {:error, :not_found}
+  def stop_task(session, task_id) do
+    :opencode_client.stop_task(session, task_id)
+  end
+
+  @doc "Run a command via universal command execution."
+  @spec command_run(pid(), binary(), map()) :: {:ok, map()} | {:error, term()}
+  def command_run(session, command, opts \\ %{}) do
+    :opencode_client.command_run(session, command, opts)
+  end
+
+  @doc "Submit feedback via universal feedback tracking."
+  @spec submit_feedback(pid(), map()) :: :ok
+  def submit_feedback(session, feedback) do
+    :opencode_client.submit_feedback(session, feedback)
+  end
+
+  @doc "Respond to an agent request via universal turn response."
+  @spec turn_respond(pid(), binary(), map()) :: :ok | {:error, :not_found | :already_resolved}
+  def turn_respond(session, request_id, params) do
+    :opencode_client.turn_respond(session, request_id, params)
+  end
+
+  # ── Todo Extraction ─────────────────────────────────────────────────
+
+  @doc "Extract all TodoWrite items from a list of messages."
+  @spec extract_todos([map()]) :: [AgentWire.Todo.todo_item()]
+  defdelegate extract_todos(messages), to: AgentWire.Todo
+
+  @doc "Filter todo items by status."
+  @spec filter_todos([AgentWire.Todo.todo_item()], AgentWire.Todo.todo_status()) ::
+          [AgentWire.Todo.todo_item()]
+  defdelegate filter_todos(todos, status), to: AgentWire.Todo, as: :filter_by_status
+
+  @doc "Get a summary of todo counts by status."
+  @spec todo_summary([AgentWire.Todo.todo_item()]) :: %{atom() => non_neg_integer()}
+  defdelegate todo_summary(todos), to: AgentWire.Todo
+
   # ── Internal ───────────────────────────────────────────────────────
 
   defp opts_to_map(opts) when is_list(opts), do: Map.new(opts)
   defp opts_to_map(opts) when is_map(opts), do: opts
+
+  defp extract_system_field(session, field, default) do
+    case session_info(session) do
+      {:ok, %{system_info: info}} when is_map(info) ->
+        {:ok, Map.get(info, field, default)}
+
+      {:ok, _} ->
+        {:ok, default}
+
+      {:error, _} = err ->
+        err
+    end
+  end
 end

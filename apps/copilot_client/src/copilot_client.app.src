@@ -9,5 +9,10 @@
         agent_wire
     ]},
     {env, []},
-    {modules, []}
+    {modules, [
+        copilot_client,
+        copilot_frame,
+        copilot_protocol,
+        copilot_session
+    ]}
 ]}.

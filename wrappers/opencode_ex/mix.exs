@@ -32,6 +32,7 @@ defmodule OpencodeEx.MixProject do
     [
       {:opencode_client, path: "../../apps/opencode_client"},
       {:agent_wire, path: "../../apps/agent_wire"},
+      {:agent_wire_ex, path: "../agent_wire_ex"},
       {:ex_doc, "~> 0.35", only: :dev, runtime: false}
     ]
   end

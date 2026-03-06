@@ -9,5 +9,9 @@
         agent_wire
     ]},
     {env, []},
-    {modules, []}
+    {modules, [
+        claude_agent_sdk,
+        claude_agent_session,
+        claude_session_store
+    ]}
 ]}.
