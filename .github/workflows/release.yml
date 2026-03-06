@@ -1,0 +1,105 @@
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: read
+
+jobs:
+  publish-erlang:
+    name: Publish Erlang Packages
+    runs-on: ubuntu-latest
+    env:
+      HEX_API_KEY: ${{ secrets.HEX_PM_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: erlef/setup-beam@v1
+        with:
+          otp-version: '28'
+
+      - name: Restore cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            _build
+            ~/.cache/rebar3
+          key: release-erlang-${{ runner.os }}-${{ hashFiles('rebar.lock') }}
+
+      - name: Compile
+        run: rebar3 compile
+
+      - name: Publish to hex.pm
+        run: |
+          # 1. Foundation (no internal deps)
+          rebar3 hex publish agent_wire --yes
+
+          # 2. Adapters (all depend on agent_wire)
+          for app in claude_agent_sdk codex_app_server copilot_client gemini_cli_client opencode_client; do
+            rebar3 hex publish "$app" --yes
+          done
+
+  publish-elixir:
+    name: Publish Elixir Packages
+    needs: publish-erlang
+    runs-on: ubuntu-latest
+    env:
+      HEX_API_KEY: ${{ secrets.HEX_PM_TOKEN }}
+      TAG_NAME: ${{ github.ref_name }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: erlef/setup-beam@v1
+        with:
+          otp-version: '28'
+          elixir-version: '1.19'
+
+      - name: Install hex and rebar
+        run: |
+          mix local.hex --force
+          mix local.rebar --force
+
+      - name: Publish to hex.pm
+        run: |
+          VERSION="${TAG_NAME#v}"
+
+          # Swap a path dep to a hex dep in mix.exs (file edit requires sed)
+          swap_dep() {
+            local file="$1" name="$2" path_pattern="$3"
+            # shellcheck disable=SC2001
+            sed -i "s|{:${name}, path: \"${path_pattern}\"}|{:${name}, \"~> ${VERSION}\"}|g" "$file"
+          }
+
+          # 1. agent_wire_ex (depends on agent_wire Erlang app)
+          pushd wrappers/agent_wire_ex
+          swap_dep mix.exs agent_wire '../../apps/agent_wire'
+          mix deps.get
+          mix hex.publish --yes
+          popd
+
+          # 2. SDK wrappers (depend on Erlang adapter + agent_wire + agent_wire_ex)
+          declare -A ADAPTER_DEPS=(
+            [claude_ex]="claude_agent_sdk:../../apps/claude_agent_sdk"
+            [codex_ex]="codex_app_server:../../apps/codex_app_server"
+            [copilot_ex]="copilot_client:../../apps/copilot_client"
+            [gemini_ex]="gemini_cli_client:../../apps/gemini_cli_client"
+            [opencode_ex]="opencode_client:../../apps/opencode_client"
+          )
+
+          for wrapper in claude_ex codex_ex copilot_ex gemini_ex opencode_ex; do
+            pushd "wrappers/$wrapper"
+
+            # Swap common path deps
+            swap_dep mix.exs agent_wire '../../apps/agent_wire'
+            swap_dep mix.exs agent_wire_ex '../agent_wire_ex'
+
+            # Swap adapter-specific dep
+            IFS=: read -r dep_name dep_path <<< "${ADAPTER_DEPS[$wrapper]}"
+            swap_dep mix.exs "$dep_name" "$dep_path"
+
+            mix deps.get
+            mix hex.publish --yes
+            popd
+          done
