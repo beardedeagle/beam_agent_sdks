@@ -9,5 +9,9 @@
         agent_wire
     ]},
     {env, []},
-    {modules, []}
+    {modules, [
+        gemini_cli_client,
+        gemini_cli_protocol,
+        gemini_cli_session
+    ]}
 ]}.

@@ -8,5 +8,22 @@
         telemetry
     ]},
     {env, []},
-    {modules, []}
+    {modules, [
+        agent_wire,
+        agent_wire_behaviour,
+        agent_wire_checkpoint,
+        agent_wire_command,
+        agent_wire_content,
+        agent_wire_control,
+        agent_wire_hooks,
+        agent_wire_jsonl,
+        agent_wire_jsonrpc,
+        agent_wire_mcp,
+        agent_wire_queue,
+        agent_wire_session_store,
+        agent_wire_telemetry,
+        agent_wire_threads,
+        agent_wire_todo,
+        agent_wire_transport
+    ]}
 ]}.

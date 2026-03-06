@@ -188,7 +188,9 @@
     overage_resets_at => number(),
     overage_disabled_reason => binary(),
     is_using_overage => boolean(),
-    surpassed_threshold => number()
+    surpassed_threshold => number(),
+    %% Thread management (added by agent_wire_threads)
+    thread_id => binary()
 }.
 
 %% Options for dispatching a query to an agent.

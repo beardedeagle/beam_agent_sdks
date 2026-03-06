@@ -3,6 +3,12 @@ defmodule ClaudeExTest do
 
   @moduletag :claude_ex
 
+  # Ensure module is loaded before function_exported? checks
+  setup_all do
+    {:module, _} = Code.ensure_loaded(ClaudeEx)
+    :ok
+  end
+
   describe "start_session/1" do
     @tag capture_log: true
     test "fails with bad CLI path" do
@@ -312,16 +318,16 @@ defmodule ClaudeExTest do
       %{tmp: tmp}
     end
 
-    test "list_sessions/1 finds session files", %{tmp: tmp} do
-      {:ok, sessions} = ClaudeEx.list_sessions(config_dir: tmp)
+    test "list_native_sessions/1 finds session files", %{tmp: tmp} do
+      {:ok, sessions} = ClaudeEx.list_native_sessions(config_dir: tmp)
       assert length(sessions) >= 1
       ids = Enum.map(sessions, & &1.session_id)
       assert "sess-abc" in ids
     end
 
-    test "get_session_messages/2 parses transcript", %{tmp: tmp} do
+    test "get_native_session_messages/2 parses transcript", %{tmp: tmp} do
       {:ok, messages} =
-        ClaudeEx.get_session_messages("sess-abc",
+        ClaudeEx.get_native_session_messages("sess-abc",
           config_dir: tmp
         )
 
@@ -330,9 +336,9 @@ defmodule ClaudeExTest do
       assert first["type"] == "system"
     end
 
-    test "get_session_messages/2 returns error for missing", %{tmp: tmp} do
+    test "get_native_session_messages/2 returns error for missing", %{tmp: tmp} do
       assert {:error, :not_found} =
-               ClaudeEx.get_session_messages("nonexistent", config_dir: tmp)
+               ClaudeEx.get_native_session_messages("nonexistent", config_dir: tmp)
     end
   end
 
@@ -461,6 +467,118 @@ defmodule ClaudeExTest do
     test "round-trip tool_use" do
       block = %{type: :tool_use, id: "tu_1", name: "bash", input: %{}}
       assert block == ClaudeEx.message_to_block(ClaudeEx.block_to_message(block))
+    end
+  end
+
+  # ── System Init Convenience Accessors ──────────────────────────────
+
+  describe "system init accessors" do
+    test "list_tools/1 is exported" do
+      assert function_exported?(ClaudeEx, :list_tools, 1)
+    end
+
+    test "list_skills/1 is exported" do
+      assert function_exported?(ClaudeEx, :list_skills, 1)
+    end
+
+    test "list_plugins/1 is exported" do
+      assert function_exported?(ClaudeEx, :list_plugins, 1)
+    end
+
+    test "list_mcp_servers/1 is exported" do
+      assert function_exported?(ClaudeEx, :list_mcp_servers, 1)
+    end
+
+    test "list_agents/1 is exported" do
+      assert function_exported?(ClaudeEx, :list_agents, 1)
+    end
+
+    test "cli_version/1 is exported" do
+      assert function_exported?(ClaudeEx, :cli_version, 1)
+    end
+
+    test "working_directory/1 is exported" do
+      assert function_exported?(ClaudeEx, :working_directory, 1)
+    end
+
+    test "output_style/1 is exported" do
+      assert function_exported?(ClaudeEx, :output_style, 1)
+    end
+
+    test "api_key_source/1 is exported" do
+      assert function_exported?(ClaudeEx, :api_key_source, 1)
+    end
+
+    test "active_betas/1 is exported" do
+      assert function_exported?(ClaudeEx, :active_betas, 1)
+    end
+
+    test "current_model/1 is exported" do
+      assert function_exported?(ClaudeEx, :current_model, 1)
+    end
+
+    test "current_permission_mode/1 is exported" do
+      assert function_exported?(ClaudeEx, :current_permission_mode, 1)
+    end
+  end
+
+  # ── Todo Extraction ────────────────────────────────────────────────
+
+  describe "todo extraction" do
+    test "extract_todos/1 extracts from assistant messages" do
+      messages = [
+        %{
+          type: :assistant,
+          content_blocks: [
+            %{
+              type: :tool_use,
+              name: "TodoWrite",
+              input: %{"content" => "Task 1", "status" => "pending"}
+            }
+          ]
+        }
+      ]
+
+      todos = ClaudeEx.extract_todos(messages)
+      assert length(todos) == 1
+      assert hd(todos).content == "Task 1"
+      assert hd(todos).status == :pending
+    end
+
+    test "filter_todos/2 filters by status" do
+      todos = [
+        %{content: "A", status: :pending},
+        %{content: "B", status: :completed}
+      ]
+
+      result = ClaudeEx.filter_todos(todos, :completed)
+      assert length(result) == 1
+      assert hd(result).content == "B"
+    end
+
+    test "todo_summary/1 counts by status" do
+      todos = [
+        %{content: "A", status: :pending},
+        %{content: "B", status: :completed},
+        %{content: "C", status: :completed}
+      ]
+
+      summary = ClaudeEx.todo_summary(todos)
+      assert summary.pending == 1
+      assert summary.completed == 2
+      assert summary.total == 3
+    end
+  end
+
+  # ── Additional Session Control ─────────────────────────────────────
+
+  describe "additional session control" do
+    test "interrupt/1 is exported" do
+      assert function_exported?(ClaudeEx, :interrupt, 1)
+    end
+
+    test "send_control/3 is exported" do
+      assert function_exported?(ClaudeEx, :send_control, 3)
     end
   end
 end

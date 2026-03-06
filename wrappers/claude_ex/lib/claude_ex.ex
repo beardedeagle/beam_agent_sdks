@@ -615,9 +615,7 @@ defmodule ClaudeEx do
     :claude_agent_sdk.account_info(session)
   end
 
-  # -------------------------------------------------------------------
-  # In-Process MCP Servers
-  # -------------------------------------------------------------------
+  # ── In-Process MCP Servers ────────────────────────────────────────
 
   @doc """
   Create an MCP tool definition for in-process tool handling.
@@ -657,9 +655,7 @@ defmodule ClaudeEx do
     :agent_wire_mcp.server(name, tools)
   end
 
-  # -------------------------------------------------------------------
-  # SDK Lifecycle Hooks
-  # -------------------------------------------------------------------
+  # ── SDK Lifecycle Hooks ───────────────────────────────────────────
 
   @doc """
   Create an SDK lifecycle hook.
@@ -710,12 +706,41 @@ defmodule ClaudeEx do
     :agent_wire_hooks.hook(event, callback, matcher)
   end
 
-  # -------------------------------------------------------------------
-  # Session History
-  # -------------------------------------------------------------------
+  @doc "Abort the current query. Alias for `interrupt/1`."
+  @spec abort(pid()) :: :ok | {:error, term()}
+  def abort(session), do: interrupt(session)
+
+  # ── Universal: Session Store (agent_wire) ─────────────────────────
+
+  @doc "List all tracked sessions."
+  @spec list_sessions() :: {:ok, [map()]}
+  def list_sessions, do: :claude_agent_sdk.list_sessions()
+
+  @doc "List sessions with filters."
+  @spec list_sessions(map()) :: {:ok, [map()]}
+  def list_sessions(opts) when is_map(opts), do: :claude_agent_sdk.list_sessions(opts)
+
+  @doc "Get messages for a session."
+  @spec get_session_messages(binary()) :: {:ok, [map()]} | {:error, :not_found}
+  def get_session_messages(session_id), do: :claude_agent_sdk.get_session_messages(session_id)
+
+  @doc "Get messages with options."
+  @spec get_session_messages(binary(), map()) :: {:ok, [map()]} | {:error, :not_found}
+  def get_session_messages(session_id, opts),
+    do: :claude_agent_sdk.get_session_messages(session_id, opts)
+
+  @doc "Get session metadata by ID."
+  @spec get_session(binary()) :: {:ok, map()} | {:error, :not_found}
+  def get_session(session_id), do: :claude_agent_sdk.get_session(session_id)
+
+  @doc "Delete a session and its messages."
+  @spec delete_session(binary()) :: :ok
+  def delete_session(session_id), do: :claude_agent_sdk.delete_session(session_id)
+
+  # ── Native Claude Session Store (disk-based JSONL transcripts) ───
 
   @doc """
-  List past Claude Code session transcripts.
+  List past Claude Code session transcripts from disk.
 
   Scans `~/.claude/projects/` for JSONL transcript files and returns
   metadata (session_id, model, timestamps) sorted by most recent first.
@@ -728,18 +753,19 @@ defmodule ClaudeEx do
 
   ## Examples
 
-      {:ok, sessions} = ClaudeEx.list_sessions()
-      {:ok, sessions} = ClaudeEx.list_sessions(limit: 10)
-      {:ok, sessions} = ClaudeEx.list_sessions(cwd: "/my/project")
+      {:ok, sessions} = ClaudeEx.list_native_sessions()
+      {:ok, sessions} = ClaudeEx.list_native_sessions(limit: 10)
   """
-  @spec list_sessions([{:config_dir, binary()} | {:cwd, binary()} | {:limit, pos_integer()}]) ::
+  @spec list_native_sessions([
+          {:config_dir, binary()} | {:cwd, binary()} | {:limit, pos_integer()}
+        ]) ::
           {:ok, [map()]} | {:error, term()}
-  def list_sessions(opts \\ []) do
+  def list_native_sessions(opts \\ []) do
     :claude_session_store.list_sessions(opts_to_map(opts))
   end
 
   @doc """
-  Read all messages from a past Claude Code session transcript.
+  Read all messages from a past Claude Code session transcript on disk.
 
   Parses the full JSONL file and returns messages in conversation order.
 
@@ -749,16 +775,53 @@ defmodule ClaudeEx do
 
   ## Examples
 
-      {:ok, messages} = ClaudeEx.get_session_messages("session-uuid-123")
-      Enum.each(messages, fn msg ->
-        IO.puts("\#{msg["type"]}: \#{inspect(msg["content"])}")
-      end)
+      {:ok, messages} = ClaudeEx.get_native_session_messages("session-uuid-123")
   """
-  @spec get_session_messages(binary(), [{:config_dir, binary()}]) ::
+  @spec get_native_session_messages(binary(), [{:config_dir, binary()}]) ::
           {:ok, [map()]} | {:error, term()}
-  def get_session_messages(session_id, opts \\ []) do
+  def get_native_session_messages(session_id, opts \\ []) do
     :claude_session_store.get_session_messages(session_id, opts_to_map(opts))
   end
+
+  # ── Universal: Thread Management (agent_wire) ────────────────────
+
+  @doc "Start a new conversation thread."
+  @spec thread_start(pid(), map()) :: {:ok, map()}
+  def thread_start(session, opts \\ %{}),
+    do: :claude_agent_sdk.thread_start(session, opts)
+
+  @doc "Resume an existing thread."
+  @spec thread_resume(pid(), binary()) :: {:ok, map()} | {:error, :not_found}
+  def thread_resume(session, thread_id),
+    do: :claude_agent_sdk.thread_resume(session, thread_id)
+
+  @doc "List all threads for this session."
+  @spec thread_list(pid()) :: {:ok, [map()]}
+  def thread_list(session), do: :claude_agent_sdk.thread_list(session)
+
+  # ── Universal: Session Control (agent_wire) ──────────────────────
+
+  @doc "Run a command via universal command execution."
+  @spec command_run(pid(), binary(), map()) :: {:ok, map()} | {:error, term()}
+  def command_run(session, command, opts \\ %{}) do
+    :claude_agent_sdk.command_run(session, command, opts)
+  end
+
+  @doc "Submit feedback via universal feedback tracking."
+  @spec submit_feedback(pid(), map()) :: :ok
+  def submit_feedback(session, feedback) do
+    :claude_agent_sdk.submit_feedback(session, feedback)
+  end
+
+  @doc "Respond to an agent request via universal turn response."
+  @spec turn_respond(pid(), binary(), map()) :: :ok | {:error, :not_found | :already_resolved}
+  def turn_respond(session, request_id, params) do
+    :claude_agent_sdk.turn_respond(session, request_id, params)
+  end
+
+  @doc "Check server health. Maps to session health + adapter info for Claude."
+  @spec server_health(pid()) :: {:ok, map()}
+  def server_health(session), do: :claude_agent_sdk.server_health(session)
 
   @doc """
   Supervisor child specification for embedding a session.
@@ -790,9 +853,7 @@ defmodule ClaudeEx do
     }
   end
 
-  # -------------------------------------------------------------------
-  # Content Block Generalization (adapter-agnostic utilities)
-  # -------------------------------------------------------------------
+  # ── Content Block Generalization (adapter-agnostic utilities) ────
 
   @doc """
   Normalize a list of messages from any adapter into a uniform flat stream.
@@ -856,9 +917,130 @@ defmodule ClaudeEx do
     :agent_wire_content.message_to_block(message)
   end
 
-  # -------------------------------------------------------------------
-  # Internal
-  # -------------------------------------------------------------------
+  # ── Additional Session Control ───────────────────────────────────
+
+  @doc """
+  Interrupt the current active query.
+
+  Sends an interrupt signal to the CLI subprocess. The current query
+  will terminate and the session returns to idle state.
+  """
+  @spec interrupt(pid()) :: :ok | {:error, term()}
+  def interrupt(session) do
+    :gen_statem.call(session, :interrupt, 10_000)
+  end
+
+  @doc """
+  Send a raw control message to the session.
+
+  Low-level interface for sending arbitrary control protocol messages.
+  Most users should prefer the higher-level convenience functions.
+
+  ## Examples
+
+      ClaudeEx.send_control(session, "setModel", %{"model" => "claude-sonnet-4-6"})
+
+  """
+  @spec send_control(pid(), binary(), map()) :: {:ok, term()} | {:error, term()}
+  def send_control(session, method, params \\ %{}) do
+    :gen_statem.call(session, {:send_control, method, params}, 30_000)
+  end
+
+  # ── System Init Convenience Accessors ────────────────────────────
+
+  @doc "List available tools from the system init data."
+  @spec list_tools(pid()) :: {:ok, list()} | {:error, term()}
+  def list_tools(session), do: extract_system_field(session, :tools, [])
+
+  @doc "List available skills from the system init data."
+  @spec list_skills(pid()) :: {:ok, list()} | {:error, term()}
+  def list_skills(session), do: extract_system_field(session, :skills, [])
+
+  @doc "List available plugins from the system init data."
+  @spec list_plugins(pid()) :: {:ok, list()} | {:error, term()}
+  def list_plugins(session), do: extract_system_field(session, :plugins, [])
+
+  @doc "List configured MCP servers from the system init data."
+  @spec list_mcp_servers(pid()) :: {:ok, list()} | {:error, term()}
+  def list_mcp_servers(session), do: extract_system_field(session, :mcp_servers, [])
+
+  @doc "List available agents from the system init data."
+  @spec list_agents(pid()) :: {:ok, list()} | {:error, term()}
+  def list_agents(session), do: extract_system_field(session, :agents, [])
+
+  @doc "Get the CLI version from the system init data."
+  @spec cli_version(pid()) :: {:ok, binary() | nil} | {:error, term()}
+  def cli_version(session), do: extract_system_field(session, :claude_code_version, nil)
+
+  @doc "Get the working directory from the system init data."
+  @spec working_directory(pid()) :: {:ok, binary() | nil} | {:error, term()}
+  def working_directory(session), do: extract_system_field(session, :cwd, nil)
+
+  @doc "Get the output style from the system init data."
+  @spec output_style(pid()) :: {:ok, binary() | nil} | {:error, term()}
+  def output_style(session), do: extract_system_field(session, :output_style, nil)
+
+  @doc "Get the API key source from the system init data."
+  @spec api_key_source(pid()) :: {:ok, binary() | nil} | {:error, term()}
+  def api_key_source(session), do: extract_system_field(session, :api_key_source, nil)
+
+  @doc "List active beta features from the system init data."
+  @spec active_betas(pid()) :: {:ok, list()} | {:error, term()}
+  def active_betas(session), do: extract_system_field(session, :betas, [])
+
+  @doc """
+  Get the current model from session info.
+
+  Extracts from the session's model field or system init data.
+  """
+  @spec current_model(pid()) :: {:ok, binary() | nil} | {:error, term()}
+  def current_model(session) do
+    case session_info(session) do
+      {:ok, %{model: model}} -> {:ok, model}
+      {:ok, %{system_info: %{model: model}}} -> {:ok, model}
+      {:ok, _} -> {:ok, nil}
+      {:error, _} = err -> err
+    end
+  end
+
+  @doc """
+  Get the current permission mode from session info.
+  """
+  @spec current_permission_mode(pid()) :: {:ok, atom() | binary() | nil} | {:error, term()}
+  def current_permission_mode(session) do
+    extract_system_field(session, :permission_mode, nil)
+  end
+
+  # ── Todo Extraction ──────────────────────────────────────────────
+
+  @doc """
+  Extract all TodoWrite items from a list of messages.
+
+  Scans assistant messages for `TodoWrite` tool use blocks and returns
+  a flat list of todo items with `:content`, `:status`, and optional
+  `:active_form` fields.
+  """
+  @spec extract_todos([map()]) :: [AgentWire.Todo.todo_item()]
+  defdelegate extract_todos(messages), to: AgentWire.Todo
+
+  @doc """
+  Filter todo items by status.
+
+  Valid statuses: `:pending`, `:in_progress`, `:completed`.
+  """
+  @spec filter_todos([AgentWire.Todo.todo_item()], AgentWire.Todo.todo_status()) ::
+          [AgentWire.Todo.todo_item()]
+  defdelegate filter_todos(todos, status), to: AgentWire.Todo, as: :filter_by_status
+
+  @doc """
+  Get a summary of todo counts by status.
+
+  Returns a map like `%{pending: 2, in_progress: 1, completed: 3, total: 6}`.
+  """
+  @spec todo_summary([AgentWire.Todo.todo_item()]) :: %{atom() => non_neg_integer()}
+  defdelegate todo_summary(todos), to: AgentWire.Todo
+
+  # ── Internal ─────────────────────────────────────────────────────
 
   defp opts_to_map(opts) when is_list(opts) do
     Map.new(opts)
@@ -869,4 +1051,17 @@ defmodule ClaudeEx do
   # Normalize Erlang map keys (atoms) to a struct-like Elixir map.
   # The Erlang side already uses atom keys, so this is mostly passthrough.
   defp normalize_msg(msg) when is_map(msg), do: msg
+
+  defp extract_system_field(session, field, default) do
+    case session_info(session) do
+      {:ok, %{system_info: info}} when is_map(info) ->
+        {:ok, Map.get(info, field, default)}
+
+      {:ok, _} ->
+        {:ok, default}
+
+      {:error, _} = err ->
+        err
+    end
+  end
 end

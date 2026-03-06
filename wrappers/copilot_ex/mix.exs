@@ -32,6 +32,7 @@ defmodule CopilotEx.MixProject do
     [
       {:copilot_client, path: "../../apps/copilot_client"},
       {:agent_wire, path: "../../apps/agent_wire"},
+      {:agent_wire_ex, path: "../agent_wire_ex"},
       {:ex_doc, "~> 0.35", only: :dev, runtime: false}
     ]
   end
@@ -46,6 +47,7 @@ defmodule CopilotEx.MixProject do
 
   defp package do
     [
+      licenses: ["Apache-2.0"],
       links: %{"GitHub" => @source_url}
     ]
   end

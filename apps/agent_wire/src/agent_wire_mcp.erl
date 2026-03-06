@@ -41,7 +41,19 @@
     call_tool_by_name/4,
     all_tool_definitions/1,
     %% Convenience: build registry from session opts
-    build_registry/1
+    build_registry/1,
+    %% Runtime management (universal features)
+    server_status/1,
+    set_servers/2,
+    toggle_server/3,
+    reconnect_server/2,
+    unregister_server/2,
+    %% Session-scoped registry (ETS-backed for universal access)
+    register_session_registry/2,
+    get_session_registry/1,
+    update_session_registry/2,
+    unregister_session_registry/1,
+    ensure_registry_table/0
 ]).
 
 -export_type([
@@ -180,6 +192,8 @@ handle_mcp_message(ServerName, Message, Registry) ->
     {ok, map()} | {error, binary()}.
 handle_mcp_message(ServerName, Message, Registry, Opts) ->
     case maps:find(ServerName, Registry) of
+        {ok, #{enabled := false}} ->
+            {error, <<"MCP server disabled: ", ServerName/binary>>};
         {ok, Server} ->
             Timeout = maps:get(handler_timeout, Opts, ?DEFAULT_HANDLER_TIMEOUT),
             dispatch_jsonrpc(Message, Server, Timeout);
@@ -240,6 +254,149 @@ build_registry(Servers) when is_list(Servers) ->
     lists:foldl(fun(S, Reg) ->
         register_server(S, Reg)
     end, new_registry(), Servers).
+
+%%--------------------------------------------------------------------
+%% Runtime Management (Universal Features)
+%%--------------------------------------------------------------------
+
+%% @doc Get status of all registered MCP servers.
+%%      Returns a map of server name -> status info (name, version,
+%%      tool count, enabled state).
+-spec server_status(mcp_registry() | undefined) ->
+    {ok, #{binary() => map()}}.
+server_status(undefined) ->
+    {ok, #{}};
+server_status(Registry) when is_map(Registry) ->
+    Status = maps:map(fun(Name, Server) ->
+        Tools = maps:get(tools, Server, []),
+        Enabled = maps:get(enabled, Server, true),
+        Version = maps:get(version, Server, <<"1.0.0">>),
+        #{
+            name => Name,
+            version => Version,
+            tool_count => length(Tools),
+            enabled => Enabled
+        }
+    end, Registry),
+    {ok, Status}.
+
+%% @doc Replace the entire server registry with new servers.
+%%      Returns the new registry. Existing servers not in the new
+%%      list are removed.
+-spec set_servers([sdk_mcp_server()], mcp_registry() | undefined) ->
+    mcp_registry().
+set_servers(Servers, _OldRegistry) when is_list(Servers) ->
+    build_registry(Servers);
+set_servers(_, OldRegistry) ->
+    OldRegistry.
+
+%% @doc Enable or disable an MCP server by name.
+%%      Returns the updated registry. Disabled servers are retained
+%%      but excluded from dispatch.
+-spec toggle_server(binary(), boolean(), mcp_registry() | undefined) ->
+    {ok, mcp_registry()} | {error, not_found}.
+toggle_server(_Name, _Enabled, undefined) ->
+    {error, not_found};
+toggle_server(Name, Enabled, Registry)
+  when is_binary(Name), is_boolean(Enabled), is_map(Registry) ->
+    case maps:find(Name, Registry) of
+        {ok, Server} ->
+            Updated = Server#{enabled => Enabled},
+            {ok, Registry#{Name => Updated}};
+        error ->
+            {error, not_found}
+    end.
+
+%% @doc Reconnect (re-register) an MCP server by name.
+%%      Resets the server's state by re-inserting it into the registry.
+%%      In practice this clears any cached state the server may hold.
+-spec reconnect_server(binary(), mcp_registry() | undefined) ->
+    {ok, mcp_registry()} | {error, not_found}.
+reconnect_server(_Name, undefined) ->
+    {error, not_found};
+reconnect_server(Name, Registry)
+  when is_binary(Name), is_map(Registry) ->
+    case maps:find(Name, Registry) of
+        {ok, Server} ->
+            %% Reset enabled state and re-insert
+            Reconnected = Server#{enabled => true},
+            {ok, Registry#{Name => Reconnected}};
+        error ->
+            {error, not_found}
+    end.
+
+%% @doc Remove an MCP server from the registry by name.
+-spec unregister_server(binary(), mcp_registry()) -> mcp_registry().
+unregister_server(Name, Registry)
+  when is_binary(Name), is_map(Registry) ->
+    maps:remove(Name, Registry).
+
+%%--------------------------------------------------------------------
+%% Session-Scoped Registry (ETS-backed)
+%%--------------------------------------------------------------------
+
+%% ETS table for session-scoped MCP registries.
+-define(SESSION_REGISTRY_TABLE, agent_wire_mcp_registries).
+
+%% @doc Ensure the session registry ETS table exists. Idempotent.
+-spec ensure_registry_table() -> ok.
+ensure_registry_table() ->
+    case ets:whereis(?SESSION_REGISTRY_TABLE) of
+        undefined ->
+            try
+                _ = ets:new(?SESSION_REGISTRY_TABLE,
+                    [set, public, named_table, {read_concurrency, true}]),
+                ok
+            catch
+                error:badarg -> ok
+            end;
+        _Tid ->
+            ok
+    end.
+
+%% @doc Register an MCP registry for a session (keyed by session pid).
+%%      Called by adapters during session init to make their MCP
+%%      registry accessible for runtime management.
+-spec register_session_registry(pid(), mcp_registry() | undefined) -> ok.
+register_session_registry(_Pid, undefined) -> ok;
+register_session_registry(Pid, Registry)
+  when is_pid(Pid), is_map(Registry) ->
+    ensure_registry_table(),
+    ets:insert(?SESSION_REGISTRY_TABLE, {Pid, Registry}),
+    ok.
+
+%% @doc Get the MCP registry for a session by pid.
+-spec get_session_registry(pid()) ->
+    {ok, mcp_registry()} | {error, not_found}.
+get_session_registry(Pid) when is_pid(Pid) ->
+    ensure_registry_table(),
+    case ets:lookup(?SESSION_REGISTRY_TABLE, Pid) of
+        [{_, Registry}] -> {ok, Registry};
+        [] -> {error, not_found}
+    end.
+
+%% @doc Update the MCP registry for a session.
+%%      Uses a fun to transform the existing registry atomically.
+-spec update_session_registry(pid(),
+    fun((mcp_registry()) -> mcp_registry())) -> ok | {error, not_found}.
+update_session_registry(Pid, UpdateFun)
+  when is_pid(Pid), is_function(UpdateFun, 1) ->
+    ensure_registry_table(),
+    case ets:lookup(?SESSION_REGISTRY_TABLE, Pid) of
+        [{_, Registry}] ->
+            Updated = UpdateFun(Registry),
+            ets:insert(?SESSION_REGISTRY_TABLE, {Pid, Updated}),
+            ok;
+        [] ->
+            {error, not_found}
+    end.
+
+%% @doc Remove a session's MCP registry (called on session termination).
+-spec unregister_session_registry(pid()) -> ok.
+unregister_session_registry(Pid) when is_pid(Pid) ->
+    ensure_registry_table(),
+    ets:delete(?SESSION_REGISTRY_TABLE, Pid),
+    ok.
 
 %%--------------------------------------------------------------------
 %% Internal: JSON-RPC Method Dispatch
@@ -356,6 +513,8 @@ find_tool(Name, [_ | Rest]) -> find_tool(Name, Rest).
 -spec find_tool_in_registry(binary(), mcp_registry()) -> {ok, tool_def()} | error.
 find_tool_in_registry(ToolName, Registry) ->
     maps:fold(fun
+        (_ServerName, #{enabled := false}, Acc) ->
+            Acc;
         (_ServerName, #{tools := Tools}, error) ->
             find_tool(ToolName, Tools);
         (_ServerName, _Server, {ok, _} = Found) ->

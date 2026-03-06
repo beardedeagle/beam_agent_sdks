@@ -5,9 +5,9 @@ JSONL parsing, message queuing, lifecycle hooks, in-process MCP servers,
 content block parsing, telemetry, and transport behaviour — used by all five
 adapter apps.
 
-**This library has no processes.** It is pure functions and type definitions.
-Adapter apps (`claude_agent_sdk`, `codex_app_server`, etc.) build their
-gen_statem sessions on top of these primitives.
+**This library has no processes.** It is pure functions, type definitions,
+and ETS-backed stores. Adapter apps (`claude_agent_sdk`, `codex_app_server`,
+etc.) build their gen_statem sessions on top of these primitives.
 
 ## Modules
 
@@ -24,6 +24,11 @@ gen_statem sessions on top of these primitives.
 | `agent_wire_transport` | Transport behaviour (callback specification) |
 | `agent_wire_behaviour` | Consumer API behaviour (shared gen_statem interface) |
 | `agent_wire_todo` | Todo/task list management for structured output |
+| `agent_wire_session_store` | Universal session history store (ETS) |
+| `agent_wire_threads` | Universal thread/conversation management (ETS) |
+| `agent_wire_checkpoint` | File checkpointing and rewind (ETS) |
+| `agent_wire_command` | Universal shell command execution (Erlang ports) |
+| `agent_wire_control` | Universal session control protocol (ETS) |
 
 ## Message Types
 
