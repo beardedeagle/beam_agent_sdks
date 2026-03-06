@@ -1,18 +1,17 @@
-%%%-------------------------------------------------------------------
-%%% @doc Unified behaviour contract for all agent wire protocol adapters.
-%%%
-%%% Every agent SDK (claude_agent_sdk, codex_app_server, opencode_client,
-%%% gemini_cli_client, copilot_client) implements this behaviour. Consumers — including
-%%% the coord orchestrator — program against this contract without
-%%% knowing which agent they're talking to.
-%%%
-%%% Enhanced from initial version with:
-%%%   - Permission handler callback with input modification
-%%%   - Session info query callback
-%%%   - Runtime control method callbacks (set_model, set_permission_mode)
-%%% @end
-%%%-------------------------------------------------------------------
 -module(agent_wire_behaviour).
+-moduledoc """
+Unified behaviour contract for all agent wire protocol adapters.
+
+Every agent SDK (claude_agent_sdk, codex_app_server, opencode_client,
+gemini_cli_client, copilot_client) implements this behaviour. Consumers — including
+the coord orchestrator — program against this contract without
+knowing which agent they're talking to.
+
+Enhanced from initial version with:
+  - Permission handler callback with input modification
+  - Session info query callback
+  - Runtime control method callbacks (set_model, set_permission_mode)
+""".
 
 %% Required callbacks — every adapter must implement these.
 
@@ -41,33 +40,36 @@
 
 -callback interrupt(Pid :: pid()) -> ok | {error, term()}.
 
-%% @doc Handle an inbound control request from the CLI.
-%%
-%% The CLI sends control_request messages (e.g., can_use_tool,
-%% hook_callback, mcp_message) that require a control_response.
-%%
-%% Return values follow the TS SDK PermissionResult pattern:
-%%   {allow, UpdatedInput} — approve, optionally modifying tool input
-%%   {deny, Reason}        — deny with a reason message
-%%   {allow, UpdatedInput, RuleUpdate} — approve with rule modification
-%%
-%% The default in claude_agent_session auto-approves all requests.
+-doc """
+Handle an inbound control request from the CLI.
+
+The CLI sends control_request messages (e.g., can_use_tool,
+hook_callback, mcp_message) that require a control_response.
+
+Return values follow the TS SDK PermissionResult pattern:
+  `{allow, UpdatedInput}` — approve, optionally modifying tool input
+  `{deny, Reason}` — deny with a reason message
+  `{allow, UpdatedInput, RuleUpdate}` — approve with rule modification
+
+The default in claude_agent_session auto-approves all requests.
+""".
 -callback handle_control_request(Subtype :: binary(), Request :: map()) ->
     agent_wire:permission_result().
 
-%% @doc Query session capabilities and initialization data.
-%%
-%% Returns a map containing information from the system init message
-%% and the initialize control response (available tools, model,
-%% MCP servers, account info, etc.).
+-doc "Query session capabilities and initialization data.
+
+Returns a map containing information from the system init message
+and the initialize control response (available tools, model,
+MCP servers, account info, etc.).
+".
 -callback session_info(Pid :: pid()) ->
     {ok, map()} | {error, term()}.
 
-%% @doc Change the model at runtime during a session.
+-doc "Change the model at runtime during a session.".
 -callback set_model(Pid :: pid(), Model :: binary()) ->
     {ok, term()} | {error, term()}.
 
-%% @doc Change the permission mode at runtime.
+-doc "Change the permission mode at runtime.".
 -callback set_permission_mode(Pid :: pid(), Mode :: binary()) ->
     {ok, term()} | {error, term()}.
 

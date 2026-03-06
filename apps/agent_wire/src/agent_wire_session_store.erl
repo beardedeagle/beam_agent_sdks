@@ -1,33 +1,32 @@
-%%%-------------------------------------------------------------------
-%%% @doc Universal session history store for the BEAM Agent SDK.
-%%%
-%%% Provides session tracking and message history across all adapters.
-%%% This is agent_wire's own implementation — every adapter records
-%%% messages here, regardless of whether the underlying CLI has native
-%%% session history support.
-%%%
-%%% Uses ETS for fast in-process storage. Sessions persist for the
-%%% lifetime of the BEAM node (or until explicitly deleted/cleared).
-%%%
-%%% Two ETS tables:
-%%%   - `agent_wire_sessions` — session metadata (id, model, cwd, etc.)
-%%%   - `agent_wire_session_messages` — messages keyed by {session_id, seq}
-%%%
-%%% Tables are created lazily on first access and are public/named so
-%%% any process can read/write without bottlenecking on a single owner.
-%%%
-%%% Usage:
-%%% ```
-%%% %% Record messages as they arrive:
-%%% agent_wire_session_store:record_message(SessionId, Message),
-%%%
-%%% %% Query history:
-%%% {ok, Sessions} = agent_wire_session_store:list_sessions(),
-%%% {ok, Messages} = agent_wire_session_store:get_session_messages(SessionId)
-%%% ```
-%%% @end
-%%%-------------------------------------------------------------------
 -module(agent_wire_session_store).
+-moduledoc """
+Universal session history store for the BEAM Agent SDK.
+
+Provides session tracking and message history across all adapters.
+This is agent_wire's own implementation — every adapter records
+messages here, regardless of whether the underlying CLI has native
+session history support.
+
+Uses ETS for fast in-process storage. Sessions persist for the
+lifetime of the BEAM node (or until explicitly deleted/cleared).
+
+Two ETS tables:
+  - `agent_wire_sessions` — session metadata (id, model, cwd, etc.)
+  - `agent_wire_session_messages` — messages keyed by {session_id, seq}
+
+Tables are created lazily on first access and are public/named so
+any process can read/write without bottlenecking on a single owner.
+
+Usage:
+```erlang
+%% Record messages as they arrive:
+agent_wire_session_store:record_message(SessionId, Message),
+
+%% Query history:
+{ok, Sessions} = agent_wire_session_store:list_sessions(),
+{ok, Messages} = agent_wire_session_store:get_session_messages(SessionId)
+```
+""".
 
 -export([
     %% Table lifecycle
@@ -94,8 +93,10 @@
 %% Table Lifecycle
 %%--------------------------------------------------------------------
 
-%% @doc Ensure ETS tables exist. Idempotent — safe to call multiple times.
-%%      Tables are public and named so any process can access them.
+-doc """
+Ensure ETS tables exist. Idempotent -- safe to call multiple times.
+Tables are public and named so any process can access them.
+""".
 -spec ensure_tables() -> ok.
 ensure_tables() ->
     ensure_table(?SESSIONS_TABLE, [set, public, named_table,
@@ -105,7 +106,7 @@ ensure_tables() ->
     ensure_table(?COUNTERS_TABLE, [set, public, named_table]),
     ok.
 
-%% @doc Clear all session data. Deletes all entries from both tables.
+-doc "Clear all session data. Deletes all entries from both tables.".
 -spec clear() -> ok.
 clear() ->
     ensure_tables(),
@@ -118,9 +119,11 @@ clear() ->
 %% Session Metadata
 %%--------------------------------------------------------------------
 
-%% @doc Register a new session with metadata.
-%%      If the session already exists, this is a no-op (use update_session
-%%      to modify existing sessions).
+-doc """
+Register a new session with metadata.
+If the session already exists, this is a no-op (use `update_session/2`
+to modify existing sessions).
+""".
 -spec register_session(binary(), map()) -> ok.
 register_session(SessionId, Meta) when is_binary(SessionId), is_map(Meta) ->
     ensure_tables(),
@@ -135,9 +138,11 @@ register_session(SessionId, Meta) when is_binary(SessionId), is_map(Meta) ->
     ets:insert_new(?SESSIONS_TABLE, {SessionId, Entry}),
     ok.
 
-%% @doc Update an existing session's metadata.
-%%      Merges the provided fields into the existing metadata.
-%%      Creates the session if it doesn't exist.
+-doc """
+Update an existing session's metadata.
+Merges the provided fields into the existing metadata.
+Creates the session if it doesn't exist.
+""".
 -spec update_session(binary(), map()) -> ok.
 update_session(SessionId, Updates) when is_binary(SessionId), is_map(Updates) ->
     ensure_tables(),
@@ -151,7 +156,7 @@ update_session(SessionId, Updates) when is_binary(SessionId), is_map(Updates) ->
             register_session(SessionId, Updates)
     end.
 
-%% @doc Get metadata for a specific session.
+-doc "Get metadata for a specific session.".
 -spec get_session(binary()) -> {ok, session_meta()} | {error, not_found}.
 get_session(SessionId) when is_binary(SessionId) ->
     ensure_tables(),
@@ -160,7 +165,7 @@ get_session(SessionId) when is_binary(SessionId) ->
         [] -> {error, not_found}
     end.
 
-%% @doc Delete a session and all its messages.
+-doc "Delete a session and all its messages.".
 -spec delete_session(binary()) -> ok.
 delete_session(SessionId) when is_binary(SessionId) ->
     ensure_tables(),
@@ -172,14 +177,16 @@ delete_session(SessionId) when is_binary(SessionId) ->
     delete_session_messages(SessionId),
     ok.
 
-%% @doc List all sessions. Equivalent to list_sessions(#{}).
+-doc "List all sessions. Equivalent to `list_sessions(#{})`.".
 -spec list_sessions() -> {ok, [session_meta()]}.
 list_sessions() ->
     list_sessions(#{}).
 
-%% @doc List sessions with optional filters.
-%%      Filters: adapter, cwd, model, limit, since (unix ms timestamp).
-%%      Results are sorted by updated_at descending.
+-doc """
+List sessions with optional filters.
+Filters: `adapter`, `cwd`, `model`, `limit`, `since` (unix ms timestamp).
+Results are sorted by `updated_at` descending.
+""".
 -spec list_sessions(list_opts()) -> {ok, [session_meta()]}.
 list_sessions(Opts) when is_map(Opts) ->
     ensure_tables(),
@@ -202,9 +209,11 @@ list_sessions(Opts) when is_map(Opts) ->
 %% Message Storage
 %%--------------------------------------------------------------------
 
-%% @doc Record a single message for a session.
-%%      The message is stored with an auto-incrementing sequence number
-%%      for ordering.  Session metadata is auto-created if not present.
+-doc """
+Record a single message for a session.
+The message is stored with an auto-incrementing sequence number
+for ordering. Session metadata is auto-created if not present.
+""".
 -spec record_message(binary(), agent_wire:message()) -> ok.
 record_message(SessionId, Message) when is_binary(SessionId), is_map(Message) ->
     ensure_tables(),
@@ -215,7 +224,7 @@ record_message(SessionId, Message) when is_binary(SessionId), is_map(Message) ->
     update_message_count(SessionId, Message),
     ok.
 
-%% @doc Record multiple messages for a session.
+-doc "Record multiple messages for a session.".
 -spec record_messages(binary(), [agent_wire:message()]) -> ok.
 record_messages(SessionId, Messages)
   when is_binary(SessionId), is_list(Messages) ->
@@ -224,18 +233,20 @@ record_messages(SessionId, Messages)
     end, Messages),
     ok.
 
-%% @doc Get all messages for a session, in order.
-%%      Equivalent to get_session_messages(SessionId, #{}).
+-doc "Get all messages for a session, in order. Equivalent to `get_session_messages(SessionId, #{})`.".
 -spec get_session_messages(binary()) ->
     {ok, [agent_wire:message()]} | {error, not_found}.
 get_session_messages(SessionId) ->
     get_session_messages(SessionId, #{}).
 
-%% @doc Get messages for a session with options.
-%%      Options:
-%%        - limit: maximum number of messages
-%%        - offset: skip this many messages from the start
-%%        - types: only include messages of these types
+-doc """
+Get messages for a session with options.
+
+Options:
+- `limit`: maximum number of messages
+- `offset`: skip this many messages from the start
+- `types`: only include messages of these types
+""".
 -spec get_session_messages(binary(), message_opts()) ->
     {ok, [agent_wire:message()]} | {error, not_found}.
 get_session_messages(SessionId, Opts)
@@ -254,13 +265,13 @@ get_session_messages(SessionId, Opts)
 %% Convenience
 %%--------------------------------------------------------------------
 
-%% @doc Get the total number of tracked sessions.
+-doc "Get the total number of tracked sessions.".
 -spec session_count() -> non_neg_integer().
 session_count() ->
     ensure_tables(),
     ets:info(?SESSIONS_TABLE, size).
 
-%% @doc Get the message count for a specific session.
+-doc "Get the message count for a specific session.".
 -spec message_count(binary()) -> non_neg_integer().
 message_count(SessionId) when is_binary(SessionId) ->
     ensure_tables(),

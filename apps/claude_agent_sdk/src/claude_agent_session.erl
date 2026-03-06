@@ -1,35 +1,37 @@
-%%%-------------------------------------------------------------------
-%%% @doc Claude Code wire protocol adapter — single gen_statem per session.
-%%%
-%%% Implements the flattened process topology from the HLD: one process
-%%% owns the Erlang Port, manages request serialization, and dispatches
-%%% messages to consumers. This eliminates the double-GenServer-hop
-%%% anti-pattern found in guess/claude_code.
-%%%
-%%% Wire protocol: JSONL over stdout/stdin.
-%%% CLI invocation: claude --output-format stream-json --input-format stream-json
-%%% Bidirectional: stdin for queries/control, stdout for responses/events.
-%%%
-%%% State machine:
-%%%   connecting -> initializing -> ready -> active_query -> ready -> ...
-%%%                                            |
-%%%                                            +-> error -> (terminate)
-%%%
-%%% Cross-referenced against TypeScript Agent SDK v0.2.66 for protocol
-%%% fidelity. Supports:
-%%%   - Rich system init parsing and session capabilities query
-%%%   - Session resumption and forking
-%%%   - System prompt presets with append
-%%%   - Permission handler callback with input modification
-%%%   - Runtime control (set_model, set_permission_mode, rewind_files)
-%%%   - All 17+ control request subtypes
-%%%   - Subagent, MCP, plugin, hooks option passing
-%%%   - Structured output, thinking, file checkpointing configuration
-%%%
-%%% Process count per local session: 2 (this gen_statem + Erlang Port).
-%%% @end
-%%%-------------------------------------------------------------------
 -module(claude_agent_session).
+
+-moduledoc """
+Claude Code wire protocol adapter — single `gen_statem` per session.
+
+Implements the flattened process topology from the HLD: one process
+owns the Erlang Port, manages request serialization, and dispatches
+messages to consumers. This eliminates the double-GenServer-hop
+anti-pattern found in guess/claude_code.
+
+Wire protocol: JSONL over stdout/stdin.
+CLI invocation: `claude --output-format stream-json --input-format stream-json`
+Bidirectional: stdin for queries/control, stdout for responses/events.
+
+State machine:
+```
+  connecting -> initializing -> ready -> active_query -> ready -> ...
+                                           |
+                                           +-> error -> (terminate)
+```
+
+Cross-referenced against TypeScript Agent SDK v0.2.66 for protocol
+fidelity. Supports:
+  - Rich system init parsing and session capabilities query
+  - Session resumption and forking
+  - System prompt presets with append
+  - Permission handler callback with input modification
+  - Runtime control (`set_model`, `set_permission_mode`, `rewind_files`)
+  - All 17+ control request subtypes
+  - Subagent, MCP, plugin, hooks option passing
+  - Structured output, thinking, file checkpointing configuration
+
+Process count per local session: 2 (this `gen_statem` + Erlang Port).
+""".
 
 -behaviour(gen_statem).
 -behaviour(agent_wire_behaviour).
@@ -157,95 +159,107 @@
 %% agent_wire_behaviour API
 %%====================================================================
 
-%% @doc Start a Claude Code session.
-%%
-%% Accepts all options defined in agent_wire:session_opts(), including:
-%%   cli_path, work_dir, env, buffer_max, session_id, model,
-%%   system_prompt (binary or #{type => preset, preset => ...}),
-%%   max_turns, resume, fork_session, permission_mode,
-%%   permission_handler, allowed_tools, disallowed_tools,
-%%   agents, mcp_servers, output_format, thinking, effort,
-%%   max_budget_usd, enable_file_checkpointing, setting_sources,
-%%   plugins, hooks, betas, include_partial_messages, sandbox,
-%%   debug, extra_args, client_app
+-doc """
+Start a Claude Code session.
+
+Accepts all options defined in `agent_wire:session_opts()`, including:
+  `cli_path`, `work_dir`, `env`, `buffer_max`, `session_id`, `model`,
+  `system_prompt` (binary or `#{type => preset, preset => ...}`),
+  `max_turns`, `resume`, `fork_session`, `permission_mode`,
+  `permission_handler`, `allowed_tools`, `disallowed_tools`,
+  `agents`, `mcp_servers`, `output_format`, `thinking`, `effort`,
+  `max_budget_usd`, `enable_file_checkpointing`, `setting_sources`,
+  `plugins`, `hooks`, `betas`, `include_partial_messages`, `sandbox`,
+  `debug`, `extra_args`, `client_app`
+""".
 -spec start_link(agent_wire:session_opts()) -> {ok, pid()} | {error, term()}.
 start_link(Opts) ->
     gen_statem:start_link(?MODULE, Opts, []).
 
-%% @doc Send a query to the Claude session. Returns a reference for
-%%      use with receive_message/3. Only valid when session is in
-%%      `ready' state.
+-doc """
+Send a query to the Claude session. Returns a reference for
+use with `receive_message/3`. Only valid when session is in
+`ready` state.
+""".
 -spec send_query(pid(), binary(), agent_wire:query_opts(), timeout()) ->
     {ok, reference()} | {error, term()}.
 send_query(Pid, Prompt, Params, Timeout) ->
     gen_statem:call(Pid, {send_query, Prompt, Params}, Timeout).
 
-%% @doc Pull the next message from an active query. Implements
-%%      demand-driven backpressure: the gen_statem only parses the
-%%      next JSONL line when this function is called.
+-doc """
+Pull the next message from an active query. Implements
+demand-driven backpressure: the `gen_statem` only parses the
+next JSONL line when this function is called.
+""".
 -spec receive_message(pid(), reference(), timeout()) ->
     {ok, agent_wire:message()} | {error, term()}.
 receive_message(Pid, Ref, Timeout) ->
     gen_statem:call(Pid, {receive_message, Ref}, Timeout).
 
-%% @doc Get the current health/state of the session.
+-doc "Get the current health/state of the session.".
 -spec health(pid()) -> ready | connecting | initializing | active_query | error.
 health(Pid) ->
     gen_statem:call(Pid, health, 5000).
 
-%% @doc Gracefully stop the session, closing the CLI subprocess.
+-doc "Gracefully stop the session, closing the CLI subprocess.".
 -spec stop(pid()) -> ok.
 stop(Pid) ->
     gen_statem:stop(Pid, normal, 10000).
 
-%% @doc Send a control protocol message (e.g., for session management).
-%%      Uses the control_request/control_response protocol.
-%%      Works in both ready and active_query states.
+-doc """
+Send a control protocol message (e.g., for session management).
+Uses the `control_request`/`control_response` protocol.
+Works in both `ready` and `active_query` states.
+""".
 -spec send_control(pid(), binary(), map()) -> {ok, term()} | {error, term()}.
 send_control(Pid, Method, Params) ->
     gen_statem:call(Pid, {send_control, Method, Params}, 10000).
 
-%% @doc Interrupt a running query.
+-doc "Interrupt a running query.".
 -spec interrupt(pid()) -> ok | {error, term()}.
 interrupt(Pid) ->
     gen_statem:call(Pid, interrupt, 5000).
 
-%% @doc Query session capabilities and initialization data.
-%%      Returns system_info (from init message), init_response,
-%%      session_id, and session opts.
+-doc """
+Query session capabilities and initialization data.
+Returns `system_info` (from init message), `init_response`,
+`session_id`, and session opts.
+""".
 -spec session_info(pid()) -> {ok, map()} | {error, term()}.
 session_info(Pid) ->
     gen_statem:call(Pid, session_info, 5000).
 
-%% @doc Change the model at runtime. Sends a set_model control request.
+-doc "Change the model at runtime. Sends a `set_model` control request.".
 -spec set_model(pid(), binary()) -> {ok, term()} | {error, term()}.
 set_model(Pid, Model) ->
     send_control(Pid, <<"set_model">>, #{<<"model">> => Model}).
 
-%% @doc Change the permission mode at runtime.
+-doc "Change the permission mode at runtime.".
 -spec set_permission_mode(pid(), binary()) -> {ok, term()} | {error, term()}.
 set_permission_mode(Pid, Mode) ->
     send_control(Pid, <<"set_permission_mode">>,
                  #{<<"permissionMode">> => Mode}).
 
-%% @doc Cancel an active query, discarding any buffered messages.
+-doc "Cancel an active query, discarding any buffered messages.".
 -spec cancel(pid(), reference()) -> ok.
 cancel(Pid, Ref) ->
     gen_statem:call(Pid, {cancel, Ref}, 5000).
 
-%% @doc Revert file changes to a checkpoint (identified by user message UUID).
-%%      Only meaningful when file checkpointing is enabled.
+-doc """
+Revert file changes to a checkpoint (identified by user message UUID).
+Only meaningful when file checkpointing is enabled.
+""".
 -spec rewind_files(pid(), binary()) -> {ok, term()} | {error, term()}.
 rewind_files(Pid, CheckpointUuid) ->
     send_control(Pid, <<"rewind_files">>,
                  #{<<"checkpoint_uuid">> => CheckpointUuid}).
 
-%% @doc Stop a running agent task by task ID.
+-doc "Stop a running agent task by task ID.".
 -spec stop_task(pid(), binary()) -> {ok, term()} | {error, term()}.
 stop_task(Pid, TaskId) ->
     send_control(Pid, <<"stop_task">>, #{<<"task_id">> => TaskId}).
 
-%% @doc Set the maximum thinking tokens at runtime.
+-doc "Set the maximum thinking tokens at runtime.".
 -spec set_max_thinking_tokens(pid(), pos_integer()) ->
     {ok, term()} | {error, term()}.
 set_max_thinking_tokens(Pid, MaxTokens) when is_integer(MaxTokens),
@@ -253,26 +267,28 @@ set_max_thinking_tokens(Pid, MaxTokens) when is_integer(MaxTokens),
     send_control(Pid, <<"set_max_thinking_tokens">>,
                  #{<<"maxThinkingTokens">> => MaxTokens}).
 
-%% @doc Query MCP server health and status.
+-doc "Query MCP server health and status.".
 -spec mcp_server_status(pid()) -> {ok, term()} | {error, term()}.
 mcp_server_status(Pid) ->
     send_control(Pid, <<"mcp_status">>, #{}).
 
-%% @doc Dynamically add or replace MCP server configurations.
-%%      Accepts a map of server name => config, matching the TS SDK's
-%%      setMcpServers() interface.
+-doc """
+Dynamically add or replace MCP server configurations.
+Accepts a map of server name => config, matching the TS SDK's
+`setMcpServers()` interface.
+""".
 -spec set_mcp_servers(pid(), map()) -> {ok, term()} | {error, term()}.
 set_mcp_servers(Pid, Servers) when is_map(Servers) ->
     send_control(Pid, <<"mcp_set_servers">>,
                  #{<<"servers">> => Servers}).
 
-%% @doc Reconnect a failed MCP server by name.
+-doc "Reconnect a failed MCP server by name.".
 -spec reconnect_mcp_server(pid(), binary()) -> {ok, term()} | {error, term()}.
 reconnect_mcp_server(Pid, ServerName) when is_binary(ServerName) ->
     send_control(Pid, <<"mcp_reconnect">>,
                  #{<<"serverName">> => ServerName}).
 
-%% @doc Enable or disable an MCP server at runtime.
+-doc "Enable or disable an MCP server at runtime.".
 -spec toggle_mcp_server(pid(), binary(), boolean()) ->
     {ok, term()} | {error, term()}.
 toggle_mcp_server(Pid, ServerName, Enabled)
@@ -647,10 +663,10 @@ resolve_cli_path(Path) when is_binary(Path) -> binary_to_list(Path);
 resolve_cli_path(Path) when is_list(Path)   -> Path;
 resolve_cli_path(Path) when is_atom(Path)   -> atom_to_list(Path).
 
-%% @doc Build CLI arguments from session options.
-%%      Only spawn-time options go here; protocol-level options go
-%%      in the initialize control_request (see build_init_request/1).
-%%      McpConfigPath is the pre-written temp file path (or undefined).
+%% Build CLI arguments from session options.
+%% Only spawn-time options go here; protocol-level options go
+%% in the initialize control_request (see build_init_request/1).
+%% McpConfigPath is the pre-written temp file path (or undefined).
 -spec build_cli_args(map(), string() | undefined) -> [string()].
 build_cli_args(Opts, McpConfigPath) ->
     Base = [
@@ -777,31 +793,31 @@ extra_args(Opts) ->
             end, [], ExtraMap)
     end.
 
-%% @doc Return --mcp-config CLI args if a config file was written.
+%% Return --mcp-config CLI args if a config file was written.
 -spec sdk_mcp_args(nonempty_string() | undefined) -> [nonempty_string()].
 sdk_mcp_args(undefined) -> [];
 sdk_mcp_args(Path) when is_list(Path) -> ["--mcp-config", Path].
 
-%% @doc Build an MCP registry from a list of sdk_mcp_server() definitions.
+%% Build an MCP registry from a list of sdk_mcp_server() definitions.
 -spec build_mcp_registry([agent_wire_mcp:sdk_mcp_server()] | undefined) ->
     agent_wire_mcp:mcp_registry() | undefined.
 build_mcp_registry(Servers) ->
     agent_wire_mcp:build_registry(Servers).
 
-%% @doc Build the hook registry from a list of hook definitions.
+%% Build the hook registry from a list of hook definitions.
 -spec build_hook_registry([agent_wire_hooks:hook_def()] | undefined) ->
     agent_wire_hooks:hook_registry() | undefined.
 build_hook_registry(Hooks) ->
     agent_wire_hooks:build_registry(Hooks).
 
-%% @doc Fire an SDK lifecycle hook. Adds the event key to context.
+%% Fire an SDK lifecycle hook. Adds the event key to context.
 -spec fire_hook(agent_wire_hooks:hook_event(), map(), #data{}) ->
     ok | {deny, binary()}.
 fire_hook(Event, Context, #data{sdk_hook_registry = Reg}) ->
     agent_wire_hooks:fire(Event, Context#{event => Event}, Reg).
 
-%% @doc Write the MCP config JSON to a temp file for CLI --mcp-config.
-%%      Returns the file path or undefined if no MCP servers configured.
+%% Write the MCP config JSON to a temp file for CLI --mcp-config.
+%% Returns the file path or undefined if no MCP servers configured.
 -spec write_mcp_config(agent_wire_mcp:mcp_registry() | undefined) ->
     string() | undefined.
 write_mcp_config(undefined) -> undefined;
@@ -815,15 +831,15 @@ write_mcp_config(Registry) ->
     ok = file:write_file(TmpPath, JsonBin),
     TmpPath.
 
-%% @doc Clean up the MCP config temp file if one was created.
+%% Clean up the MCP config temp file if one was created.
 -spec cleanup_mcp_config(string() | undefined) -> ok.
 cleanup_mcp_config(undefined) -> ok;
 cleanup_mcp_config(Path) when is_list(Path) ->
     _ = file:delete(Path),
     ok.
 
-%% @doc Send SIGINT to the CLI subprocess via its OS pid.
-%%      Matches TS SDK's process.kill('SIGINT') behavior.
+%% Send SIGINT to the CLI subprocess via its OS pid.
+%% Matches TS SDK's process.kill('SIGINT') behavior.
 -spec send_sigint(port()) -> ok.
 send_sigint(Port) ->
     case erlang:port_info(Port, os_pid) of
@@ -866,9 +882,9 @@ build_port_opts(Opts, Args) ->
 %% Internal: Protocol Messages
 %%====================================================================
 
-%% @doc Build the initialize control_request with all protocol-level
-%%      configuration options. CLI-flag options are handled separately
-%%      in build_cli_args/1.
+%% Build the initialize control_request with all protocol-level
+%% configuration options. CLI-flag options are handled separately
+%% in build_cli_args/1.
 -spec build_init_request(map(), agent_wire_mcp:mcp_registry() | undefined) ->
     map().
 build_init_request(Opts, McpRegistry) ->
@@ -915,7 +931,7 @@ build_init_request(Opts, McpRegistry) ->
             M2
     end.
 
-%% @doc Build a query message in the corrected protocol format.
+%% Build a query message in the corrected protocol format.
 -spec build_query_message(binary(), agent_wire:query_opts()) -> map().
 build_query_message(Prompt, Params) ->
     Base = #{
@@ -944,9 +960,9 @@ build_query_message(Prompt, Params) ->
 %% Internal: Initialization
 %%====================================================================
 
-%% @doc Extract the initialization response from the buffer, capturing
-%%      the system init message along the way. Threads the #data{}
-%%      record to store system_info and init_response.
+%% Extract the initialization response from the buffer, capturing
+%% the system init message along the way. Threads the #data{}
+%% record to store system_info and init_response.
 -spec try_extract_init_response(binary(), #data{}) ->
     {ok, binary() | undefined, binary(), #data{}} |
     {not_ready, binary(), #data{}}.
@@ -1001,8 +1017,8 @@ try_extract_message(Buffer) ->
             end
     end.
 
-%% @doc Extract the next deliverable message, handling control_requests
-%%      internally (auto-approve or delegate to permission_handler).
+%% Extract the next deliverable message, handling control_requests
+%% internally (auto-approve or delegate to permission_handler).
 -spec try_extract_next_deliverable(#data{}) ->
     {ok, agent_wire:message(), #data{}} | {none, #data{}}.
 try_extract_next_deliverable(Data) ->
@@ -1028,10 +1044,10 @@ try_extract_next_deliverable(Data) ->
             {none, Data}
     end.
 
-%% @doc Eagerly process control_request and control_response messages
-%%      from the buffer without extracting deliverable messages.
-%%      Called when no consumer is waiting — we MUST still respond to
-%%      control_requests so the CLI doesn't block.
+%% Eagerly process control_request and control_response messages
+%% from the buffer without extracting deliverable messages.
+%% Called when no consumer is waiting — we MUST still respond to
+%% control_requests so the CLI doesn't block.
 -spec drain_control_requests(#data{}) -> #data{}.
 drain_control_requests(Data) ->
     case try_extract_message(Data#data.buffer) of
@@ -1116,8 +1132,8 @@ check_buffer_overflow(#data{buffer = Buffer, buffer_max = Max} = Data) ->
 %% Internal: Control Message Handling
 %%====================================================================
 
-%% @doc Shared implementation for sending control requests.
-%%      Used by both ready and active_query states.
+%% Shared implementation for sending control requests.
+%% Used by both ready and active_query states.
 -spec send_control_impl(gen_statem:from(), binary(), map(), #data{}) ->
     gen_statem:event_handler_result(state_name()).
 send_control_impl(From, Method, Params, Data) ->
@@ -1132,7 +1148,7 @@ send_control_impl(From, Method, Params, Data) ->
     Pending = maps:put(ReqId, From, Data#data.pending),
     {keep_state, Data#data{pending = Pending}}.
 
-%% @doc Process control responses and inbound requests in ready state.
+%% Process control responses and inbound requests in ready state.
 -spec process_control_messages(#data{}) -> {#data{}, [gen_statem:action()]}.
 process_control_messages(Data) ->
     process_control_messages_loop(Data, []).
@@ -1168,9 +1184,9 @@ process_control_messages_loop(Data, Actions) ->
             end
     end.
 
-%% @doc Handle an inbound control_request from the CLI.
-%%      For can_use_tool: delegates to permission_handler if configured,
-%%      otherwise auto-approves. All other subtypes are auto-approved.
+%% Handle an inbound control_request from the CLI.
+%% For can_use_tool: delegates to permission_handler if configured,
+%% otherwise auto-approves. All other subtypes are auto-approved.
 -spec handle_inbound_control_request(agent_wire:message(), #data{}) -> ok.
 handle_inbound_control_request(Msg, #data{port = Port} = Data) ->
     ReqId = maps:get(request_id, Msg, undefined),
@@ -1185,8 +1201,8 @@ handle_inbound_control_request(Msg, #data{port = Port} = Data) ->
     port_command(Port, agent_wire_jsonl:encode_line(ResponseMsg)),
     ok.
 
-%% @doc Build a response for an inbound control request.
-%%      Uses permission_handler for can_use_tool if configured.
+%% Build a response for an inbound control request.
+%% Uses permission_handler for can_use_tool if configured.
 -spec build_inbound_response(binary() | undefined, map(), #data{}) -> map().
 build_inbound_response(<<"can_use_tool">>, Request,
                        #data{permission_handler = Handler,
@@ -1290,7 +1306,7 @@ build_inbound_response(_, _Request, _Data) ->
 %% Internal: Session Info
 %%====================================================================
 
-%% @doc Build the session info map returned by session_info/1.
+%% Build the session info map returned by session_info/1.
 -spec build_session_info(#data{}) -> map().
 build_session_info(Data) ->
     #{
@@ -1303,7 +1319,7 @@ build_session_info(Data) ->
 %% Internal: Encoding Helpers
 %%====================================================================
 
-%% @doc Encode a system prompt preset config for the wire protocol.
+%% Encode a system prompt preset config for the wire protocol.
 -spec encode_system_prompt(map()) -> map().
 encode_system_prompt(#{type := preset, preset := Preset} = SP) ->
     Base = #{<<"type">> => <<"preset">>, <<"preset">> => Preset},
@@ -1312,7 +1328,7 @@ encode_system_prompt(#{type := preset, preset := Preset} = SP) ->
         Append -> Base#{<<"append">> => Append}
     end.
 
-%% @doc Encode a permission mode atom to the wire binary format.
+%% Encode a permission mode atom to the wire binary format.
 -spec encode_permission_mode(agent_wire:permission_mode()) -> binary().
 encode_permission_mode(default)            -> <<"default">>;
 encode_permission_mode(accept_edits)       -> <<"acceptEdits">>;
@@ -1320,8 +1336,8 @@ encode_permission_mode(bypass_permissions) -> <<"bypassPermissions">>;
 encode_permission_mode(plan)               -> <<"plan">>;
 encode_permission_mode(dont_ask)           -> <<"dontAsk">>.
 
-%% @doc Pass-through encoder for option values. Most values encode
-%%      directly; atoms get converted to binaries for JSON safety.
+%% Pass-through encoder for option values. Most values encode
+%% directly; atoms get converted to binaries for JSON safety.
 -spec encode_value(term()) -> term().
 encode_value(V) when is_atom(V), V =/= true, V =/= false, V =/= null ->
     atom_to_binary(V);

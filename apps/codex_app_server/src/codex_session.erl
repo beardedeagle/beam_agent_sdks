@@ -1,25 +1,29 @@
-%%%-------------------------------------------------------------------
-%%% @doc Codex CLI app-server wire protocol adapter — gen_statem.
-%%%
-%%% Primary adapter for `codex --app-server` mode. Implements full
-%%% bidirectional JSON-RPC over stdio with the Codex CLI.
-%%%
-%%% State machine:
-%%%   initializing -> ready -> active_turn -> ready -> ...
-%%%                             |
-%%%                             +-> error -> (terminate)
-%%%
-%%% Key differences from claude_agent_session:
-%%%   - JSON-RPC envelope (no "jsonrpc" field on wire — Codex omits it)
-%%%   - 3-step initialize handshake (request → response → notification)
-%%%   - Thread/turn model (persistent threads, discrete turns)
-%%%   - Server-initiated requests (approval callbacks)
-%%%   - Integer request IDs (auto-incrementing per session)
-%%%
-%%% Implements agent_wire_behaviour for unified consumer API.
-%%% @end
-%%%-------------------------------------------------------------------
 -module(codex_session).
+
+-moduledoc """
+Codex CLI app-server wire protocol adapter -- `gen_statem`.
+
+Primary adapter for `codex --app-server` mode. Implements full
+bidirectional JSON-RPC over stdio with the Codex CLI.
+
+State machine:
+
+```
+initializing -> ready -> active_turn -> ready -> ...
+                          |
+                          +-> error -> (terminate)
+```
+
+Key differences from `claude_agent_session`:
+
+- JSON-RPC envelope (no `"jsonrpc"` field on wire -- Codex omits it)
+- 3-step initialize handshake (request -> response -> notification)
+- Thread/turn model (persistent threads, discrete turns)
+- Server-initiated requests (approval callbacks)
+- Integer request IDs (auto-incrementing per session)
+
+Implements `agent_wire_behaviour` for unified consumer API.
+""".
 
 -behaviour(gen_statem).
 -behaviour(agent_wire_behaviour).

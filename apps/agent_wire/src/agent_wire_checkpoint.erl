@@ -1,25 +1,24 @@
-%%%-------------------------------------------------------------------
-%%% @doc Universal file checkpointing and rewind for the BEAM Agent SDK.
-%%%
-%%% Provides file snapshot and restore capabilities across all adapters.
-%%% Before a tool mutates files, callers snapshot the target paths.
-%%% Rewind restores files to their checkpointed state.
-%%%
-%%% Uses ETS for checkpoint metadata and stores file content directly.
-%%% Checkpoints persist for the lifetime of the BEAM node (or until
-%%% explicitly deleted/cleared).
-%%%
-%%% Usage:
-%%% ```
-%%% %% Snapshot files before a mutation:
-%%% {ok, CP} = agent_wire_checkpoint:snapshot(SessionId, UUID, ["/tmp/foo.txt"]),
-%%%
-%%% %% Later, rewind to that checkpoint:
-%%% ok = agent_wire_checkpoint:rewind(SessionId, UUID)
-%%% ```
-%%% @end
-%%%-------------------------------------------------------------------
 -module(agent_wire_checkpoint).
+-moduledoc """
+Universal file checkpointing and rewind for the BEAM Agent SDK.
+
+Provides file snapshot and restore capabilities across all adapters.
+Before a tool mutates files, callers snapshot the target paths.
+Rewind restores files to their checkpointed state.
+
+Uses ETS for checkpoint metadata and stores file content directly.
+Checkpoints persist for the lifetime of the BEAM node (or until
+explicitly deleted/cleared).
+
+Usage:
+```erlang
+%% Snapshot files before a mutation:
+{ok, CP} = agent_wire_checkpoint:snapshot(SessionId, UUID, ["/tmp/foo.txt"]),
+
+%% Later, rewind to that checkpoint:
+ok = agent_wire_checkpoint:rewind(SessionId, UUID)
+```
+""".
 
 -export([
     %% Table lifecycle
@@ -63,14 +62,14 @@
 %% Table Lifecycle
 %%--------------------------------------------------------------------
 
-%% @doc Ensure the checkpoints ETS table exists. Idempotent.
+-doc "Ensure the checkpoints ETS table exists. Idempotent.".
 -spec ensure_table() -> ok.
 ensure_table() ->
     ensure_ets(?CHECKPOINTS_TABLE, [set, public, named_table,
         {read_concurrency, true}]),
     ok.
 
-%% @doc Clear all checkpoint data.
+-doc "Clear all checkpoint data.".
 -spec clear() -> ok.
 clear() ->
     ensure_table(),
@@ -81,9 +80,11 @@ clear() ->
 %% Checkpoint Operations
 %%--------------------------------------------------------------------
 
-%% @doc Snapshot a list of file paths for later rewind.
-%%      Reads each file's content and permissions. Files that don't
-%%      exist are recorded as non-existent (rewind will delete them).
+-doc """
+Snapshot a list of file paths for later rewind.
+Reads each file's content and permissions. Files that don't
+exist are recorded as non-existent (rewind will delete them).
+""".
 -spec snapshot(binary(), binary(), [binary() | string()]) ->
     {ok, checkpoint()}.
 snapshot(SessionId, UUID, FilePaths)
@@ -101,10 +102,12 @@ snapshot(SessionId, UUID, FilePaths)
     ets:insert(?CHECKPOINTS_TABLE, {Key, Checkpoint}),
     {ok, Checkpoint}.
 
-%% @doc Rewind files to a checkpoint state.
-%%      Restores each file's content, permissions, and existence.
-%%      Files created after the checkpoint are deleted if they didn't
-%%      exist at checkpoint time.
+-doc """
+Rewind files to a checkpoint state.
+Restores each file's content, permissions, and existence.
+Files created after the checkpoint are deleted if they didn't
+exist at checkpoint time.
+""".
 -spec rewind(binary(), binary()) -> ok | {error, not_found | term()}.
 rewind(SessionId, UUID)
   when is_binary(SessionId), is_binary(UUID) ->
@@ -117,7 +120,7 @@ rewind(SessionId, UUID)
             {error, not_found}
     end.
 
-%% @doc List all checkpoints for a session, newest first.
+-doc "List all checkpoints for a session, newest first.".
 -spec list_checkpoints(binary()) -> {ok, [checkpoint()]}.
 list_checkpoints(SessionId) when is_binary(SessionId) ->
     ensure_table(),
@@ -132,7 +135,7 @@ list_checkpoints(SessionId) when is_binary(SessionId) ->
     end, Checkpoints),
     {ok, Sorted}.
 
-%% @doc Get a specific checkpoint.
+-doc "Get a specific checkpoint.".
 -spec get_checkpoint(binary(), binary()) ->
     {ok, checkpoint()} | {error, not_found}.
 get_checkpoint(SessionId, UUID)
@@ -144,7 +147,7 @@ get_checkpoint(SessionId, UUID)
         [] -> {error, not_found}
     end.
 
-%% @doc Delete a checkpoint.
+-doc "Delete a checkpoint.".
 -spec delete_checkpoint(binary(), binary()) -> ok.
 delete_checkpoint(SessionId, UUID)
   when is_binary(SessionId), is_binary(UUID) ->
@@ -157,9 +160,11 @@ delete_checkpoint(SessionId, UUID)
 %% Hook Helpers
 %%--------------------------------------------------------------------
 
-%% @doc Extract file paths from a tool use message for checkpointing.
-%%      Inspects the tool name and input to determine which files will
-%%      be modified.
+-doc """
+Extract file paths from a tool use message for checkpointing.
+Inspects the tool name and input to determine which files will
+be modified.
+""".
 -spec extract_file_paths(binary(), map()) -> [binary()].
 extract_file_paths(ToolName, ToolInput) when is_map(ToolInput) ->
     case ToolName of

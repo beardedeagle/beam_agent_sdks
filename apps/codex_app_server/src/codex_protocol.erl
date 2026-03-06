@@ -1,15 +1,15 @@
-%%%-------------------------------------------------------------------
-%%% @doc Codex message normalization and wire format builders.
-%%%
-%%% Maps Codex-specific JSON-RPC notifications/responses to/from
-%%% agent_wire:message() and builds wire-format params for Codex
-%%% JSON-RPC methods.
-%%%
-%%% Codex uses camelCase field names and a thread/turn model.
-%%% Notifications arrive as JSON-RPC notifications (method + params).
-%%% @end
-%%%-------------------------------------------------------------------
 -module(codex_protocol).
+
+-moduledoc """
+Codex message normalization and wire format builders.
+
+Maps Codex-specific JSON-RPC notifications/responses to/from
+`agent_wire:message()` and builds wire-format params for Codex
+JSON-RPC methods.
+
+Codex uses camelCase field names and a thread/turn model.
+Notifications arrive as JSON-RPC notifications (method + params).
+""".
 
 -export([
     %% Notification normalization
@@ -72,8 +72,7 @@
 %% Notification Normalization
 %%====================================================================
 
-%% @doc Normalize a Codex JSON-RPC notification into agent_wire:message().
-%%      Method is the notification method, Params is the params map.
+-doc "Normalize a Codex JSON-RPC notification into `agent_wire:message()`. Method is the notification method, Params is the params map.".
 -spec normalize_notification(binary(), map()) -> agent_wire:message().
 
 %% Streaming text content delta
@@ -234,7 +233,7 @@ normalize_item_completed(_Type, _Item, Params) ->
 %% Wire Param Builders
 %%====================================================================
 
-%% @doc Build params for thread/start request.
+-doc "Build params for `thread/start` request.".
 -spec thread_start_params(map()) -> map().
 thread_start_params(Opts) ->
     M0 = #{},
@@ -242,15 +241,14 @@ thread_start_params(Opts) ->
     M2 = maybe_put_opt(<<"baseInstructions">>, base_instructions, Opts, M1),
     maybe_put_opt(<<"developerInstructions">>, developer_instructions, Opts, M2).
 
-%% @doc Build params for turn/start request with string prompt.
-%%      Auto-wraps a binary prompt in a Text UserInput list.
+-doc "Build params for `turn/start` request with string prompt. Auto-wraps a binary prompt in a Text UserInput list.".
 -spec turn_start_params(binary(), binary() | [user_input()]) -> map().
 turn_start_params(ThreadId, Prompt) when is_binary(Prompt) ->
     turn_start_params(ThreadId, [text_input(Prompt)], #{});
 turn_start_params(ThreadId, Inputs) when is_list(Inputs) ->
     turn_start_params(ThreadId, Inputs, #{}).
 
-%% @doc Build params for turn/start request with explicit options.
+-doc "Build params for `turn/start` request with explicit options.".
 -spec turn_start_params(binary(), binary() | [user_input()], map()) -> map().
 turn_start_params(ThreadId, Prompt, Opts) when is_binary(Prompt) ->
     turn_start_params(ThreadId, [text_input(Prompt)], Opts);
@@ -261,7 +259,7 @@ turn_start_params(ThreadId, Inputs, Opts) when is_list(Inputs) ->
     M3 = maybe_put_opt(<<"sandboxMode">>, sandbox_mode, Opts, M2),
     maybe_put_opt(<<"outputFormat">>, output_format, Opts, M3).
 
-%% @doc Build params for initialize request.
+-doc "Build params for initialize request.".
 -spec initialize_params(map()) -> map().
 initialize_params(Opts) ->
     ClientInfo = #{
@@ -278,12 +276,12 @@ initialize_params(Opts) ->
 %% Approval Response Builders
 %%====================================================================
 
-%% @doc Build response map for command execution approval.
+-doc "Build response map for command execution approval.".
 -spec command_approval_response(approval_decision()) -> map().
 command_approval_response(Decision) ->
     #{<<"decision">> => encode_approval_decision(Decision)}.
 
-%% @doc Build response map for file change approval.
+-doc "Build response map for file change approval.".
 -spec file_approval_response(file_approval_decision()) -> map().
 file_approval_response(Decision) ->
     #{<<"decision">> => encode_approval_decision(Decision)}.
@@ -292,7 +290,7 @@ file_approval_response(Decision) ->
 %% Text Input Helper
 %%====================================================================
 
-%% @doc Create a Text UserInput for turn/start.
+-doc "Create a Text UserInput for `turn/start`.".
 -spec text_input(binary()) -> user_input().
 text_input(Text) when is_binary(Text) ->
     #{type => <<"Text">>, text => Text}.
@@ -301,7 +299,7 @@ text_input(Text) when is_binary(Text) ->
 %% Enum Encoding/Parsing
 %%====================================================================
 
-%% @doc Parse a wire approval decision string to atom.
+-doc "Parse a wire approval decision string to atom.".
 -spec parse_approval_decision(binary()) -> approval_decision().
 parse_approval_decision(<<"accept">>)            -> accept;
 parse_approval_decision(<<"acceptForSession">>)  -> accept_for_session;
@@ -309,14 +307,14 @@ parse_approval_decision(<<"decline">>)           -> decline;
 parse_approval_decision(<<"cancel">>)            -> cancel;
 parse_approval_decision(_)                       -> decline.
 
-%% @doc Encode an approval decision atom to wire format.
+-doc "Encode an approval decision atom to wire format.".
 -spec encode_approval_decision(approval_decision()) -> binary().
 encode_approval_decision(accept)             -> <<"accept">>;
 encode_approval_decision(accept_for_session) -> <<"acceptForSession">>;
 encode_approval_decision(decline)            -> <<"decline">>;
 encode_approval_decision(cancel)             -> <<"cancel">>.
 
-%% @doc Encode AskForApproval enum (kebab-case on wire).
+-doc "Encode AskForApproval enum (kebab-case on wire).".
 -spec encode_ask_for_approval(ask_for_approval()) -> binary().
 encode_ask_for_approval(untrusted)  -> <<"untrusted">>;
 encode_ask_for_approval(on_failure) -> <<"on-failure">>;
@@ -324,7 +322,7 @@ encode_ask_for_approval(on_request) -> <<"on-request">>;
 encode_ask_for_approval(reject)     -> <<"reject">>;
 encode_ask_for_approval(never)      -> <<"never">>.
 
-%% @doc Encode SandboxMode enum (kebab-case on wire).
+-doc "Encode SandboxMode enum (kebab-case on wire).".
 -spec encode_sandbox_mode(sandbox_mode()) -> binary().
 encode_sandbox_mode(read_only)          -> <<"read-only">>;
 encode_sandbox_mode(workspace_write)    -> <<"workspace-write">>;

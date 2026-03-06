@@ -1,25 +1,28 @@
-%%%-------------------------------------------------------------------
-%%% @doc Gemini CLI wire protocol normalization — pure functions.
-%%%
-%%% Maps Gemini CLI JSON events to agent_wire:message(). No processes,
-%%% no state. All maps:get calls use defaults for defensive coding.
-%%%
-%%% Gemini CLI wire protocol event types:
-%%%   init          → system message with session_id and model (subtype: init)
-%%%   message/user  → user message
-%%%   message/assistant (delta=true)  → text message (content is delta)
-%%%   message/assistant (delta=false) → text message (content is full text)
-%%%   tool_use      → tool_use message
-%%%   tool_result/success → tool_result message
-%%%   tool_result/error   → error message
-%%%   error/warning → system message with subtype warning
-%%%   error/error   → error message
-%%%   result/success → result message with stats
-%%%   result/error   → error message
-%%%   unknown        → raw message
-%%% @end
-%%%-------------------------------------------------------------------
 -module(gemini_cli_protocol).
+
+-moduledoc """
+Gemini CLI wire protocol normalization -- pure functions.
+
+Maps Gemini CLI JSON events to `agent_wire:message()`. No processes,
+no state. All `maps:get` calls use defaults for defensive coding.
+
+Gemini CLI wire protocol event types:
+
+| Wire Event | Normalized Type |
+|---|---|
+| `init` | system message with `session_id` and `model` (subtype: init) |
+| `message/user` | user message |
+| `message/assistant` (`delta=true`) | text message (content is delta) |
+| `message/assistant` (`delta=false`) | text message (content is full text) |
+| `tool_use` | tool_use message |
+| `tool_result/success` | tool_result message |
+| `tool_result/error` | error message |
+| `error/warning` | system message with subtype warning |
+| `error/error` | error message |
+| `result/success` | result message with stats |
+| `result/error` | error message |
+| unknown | raw message |
+""".
 
 -export([
     normalize_event/1,
@@ -31,9 +34,11 @@
 %% API
 %%====================================================================
 
-%% @doc Normalize a raw decoded Gemini CLI JSON event map into an
-%%      agent_wire:message(). Dispatches on the "type" field.
-%%      All fields use defaults for defensive coding.
+-doc """
+Normalize a raw decoded Gemini CLI JSON event map into an
+`agent_wire:message()`. Dispatches on the `"type"` field.
+All fields use defaults for defensive coding.
+""".
 -spec normalize_event(map()) -> agent_wire:message().
 normalize_event(#{<<"type">> := <<"init">>} = Raw) ->
     SessionId = maps:get(<<"session_id">>, Raw, <<>>),
@@ -137,8 +142,7 @@ normalize_event(Raw) when is_map(Raw) ->
         timestamp => erlang:system_time(millisecond)
     }.
 
-%% @doc Extract stats from a Gemini CLI result stats map.
-%%      Returns a normalized map with atom keys and numeric defaults.
+-doc "Extract stats from a Gemini CLI result stats map. Returns a normalized map with atom keys and numeric defaults.".
 -spec parse_stats(map()) -> map().
 parse_stats(Stats) when is_map(Stats) ->
     #{
@@ -150,8 +154,7 @@ parse_stats(Stats) when is_map(Stats) ->
 parse_stats(_) ->
     #{tokens_in => 0, tokens_out => 0, duration_ms => 0, tool_calls => 0}.
 
-%% @doc Map a Gemini CLI exit code to a descriptive binary reason.
-%%      Exit codes sourced from the Gemini CLI documentation.
+-doc "Map a Gemini CLI exit code to a descriptive binary reason. Exit codes sourced from the Gemini CLI documentation.".
 -spec exit_code_to_error(integer()) -> binary().
 exit_code_to_error(0)   -> <<"success">>;
 exit_code_to_error(41)  -> <<"auth_error">>;

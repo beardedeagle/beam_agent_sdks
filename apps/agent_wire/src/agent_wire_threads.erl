@@ -1,29 +1,28 @@
-%%%-------------------------------------------------------------------
-%%% @doc Universal thread/conversation management for the BEAM Agent SDK.
-%%%
-%%% Provides logical conversation threading across all adapters.
-%%% A thread groups related queries into a named conversation context.
-%%%
-%%% Uses the same ETS-backed approach as agent_wire_session_store.
-%%% Threads are scoped to a session — each session can have multiple
-%%% threads, and each thread tracks its query history.
-%%%
-%%% Usage:
-%%% ```
-%%% %% Start a new thread:
-%%% {ok, Thread} = agent_wire_threads:start_thread(SessionId, #{
-%%%     name => <<"feature-discussion">>
-%%% }),
-%%%
-%%% %% List threads:
-%%% {ok, Threads} = agent_wire_threads:list_threads(SessionId),
-%%%
-%%% %% Resume a thread:
-%%% {ok, Thread} = agent_wire_threads:resume_thread(SessionId, ThreadId)
-%%% ```
-%%% @end
-%%%-------------------------------------------------------------------
 -module(agent_wire_threads).
+-moduledoc """
+Universal thread/conversation management for the BEAM Agent SDK.
+
+Provides logical conversation threading across all adapters.
+A thread groups related queries into a named conversation context.
+
+Uses the same ETS-backed approach as agent_wire_session_store.
+Threads are scoped to a session — each session can have multiple
+threads, and each thread tracks its query history.
+
+Usage:
+```erlang
+%% Start a new thread:
+{ok, Thread} = agent_wire_threads:start_thread(SessionId, #{
+    name => <<"feature-discussion">>
+}),
+
+%% List threads:
+{ok, Threads} = agent_wire_threads:list_threads(SessionId),
+
+%% Resume a thread:
+{ok, Thread} = agent_wire_threads:resume_thread(SessionId, ThreadId)
+```
+""".
 
 -export([
     %% Table lifecycle
@@ -77,7 +76,7 @@
 %% Table Lifecycle
 %%--------------------------------------------------------------------
 
-%% @doc Ensure the threads ETS table exists. Idempotent.
+-doc "Ensure the threads ETS table exists. Idempotent.".
 -spec ensure_table() -> ok.
 ensure_table() ->
     ensure_ets(?THREADS_TABLE, [set, public, named_table,
@@ -85,7 +84,7 @@ ensure_table() ->
     ensure_ets(?ACTIVE_TABLE, [set, public, named_table]),
     ok.
 
-%% @doc Clear all thread data.
+-doc "Clear all thread data.".
 -spec clear() -> ok.
 clear() ->
     ensure_table(),
@@ -97,9 +96,11 @@ clear() ->
 %% Thread Operations
 %%--------------------------------------------------------------------
 
-%% @doc Start a new conversation thread within a session.
-%%      Generates a thread ID if not provided in opts.
-%%      Returns the thread metadata.
+-doc """
+Start a new conversation thread within a session.
+Generates a thread ID if not provided in opts.
+Returns the thread metadata.
+""".
 -spec start_thread(binary(), thread_opts()) -> {ok, thread_meta()}.
 start_thread(SessionId, Opts) when is_binary(SessionId), is_map(Opts) ->
     ensure_table(),
@@ -121,9 +122,11 @@ start_thread(SessionId, Opts) when is_binary(SessionId), is_map(Opts) ->
     set_active_thread(SessionId, ThreadId),
     {ok, Thread}.
 
-%% @doc Resume an existing thread by ID.
-%%      Sets it as the active thread for the session.
-%%      Returns {error, not_found} if the thread doesn't exist.
+-doc """
+Resume an existing thread by ID.
+Sets it as the active thread for the session.
+Returns `{error, not_found}` if the thread doesn't exist.
+""".
 -spec resume_thread(binary(), binary()) ->
     {ok, thread_meta()} | {error, not_found}.
 resume_thread(SessionId, ThreadId)
@@ -144,7 +147,7 @@ resume_thread(SessionId, ThreadId)
             {error, not_found}
     end.
 
-%% @doc List all threads for a session, sorted by updated_at descending.
+-doc "List all threads for a session, sorted by `updated_at` descending.".
 -spec list_threads(binary()) -> {ok, [thread_meta()]}.
 list_threads(SessionId) when is_binary(SessionId) ->
     ensure_table(),
@@ -159,7 +162,7 @@ list_threads(SessionId) when is_binary(SessionId) ->
     end, Threads),
     {ok, Sorted}.
 
-%% @doc Get a specific thread by ID.
+-doc "Get a specific thread by ID.".
 -spec get_thread(binary(), binary()) ->
     {ok, thread_meta()} | {error, not_found}.
 get_thread(SessionId, ThreadId)
@@ -171,7 +174,7 @@ get_thread(SessionId, ThreadId)
         [] -> {error, not_found}
     end.
 
-%% @doc Delete a thread.
+-doc "Delete a thread.".
 -spec delete_thread(binary(), binary()) -> ok.
 delete_thread(SessionId, ThreadId)
   when is_binary(SessionId), is_binary(ThreadId) ->
@@ -189,8 +192,10 @@ delete_thread(SessionId, ThreadId)
 %% Thread Message Tracking
 %%--------------------------------------------------------------------
 
-%% @doc Record a message against a thread.
-%%      Also records the message in the session store for unified history.
+-doc """
+Record a message against a thread.
+Also records the message in the session store for unified history.
+""".
 -spec record_thread_message(binary(), binary(), agent_wire:message()) -> ok.
 record_thread_message(SessionId, ThreadId, Message)
   when is_binary(SessionId), is_binary(ThreadId), is_map(Message) ->
@@ -213,8 +218,10 @@ record_thread_message(SessionId, ThreadId, Message)
     agent_wire_session_store:record_message(SessionId, TaggedMessage),
     ok.
 
-%% @doc Get all messages for a specific thread.
-%%      Filters session messages by thread_id tag.
+-doc """
+Get all messages for a specific thread.
+Filters session messages by `thread_id` tag.
+""".
 -spec get_thread_messages(binary(), binary()) ->
     {ok, [agent_wire:message()]} | {error, not_found}.
 get_thread_messages(SessionId, ThreadId)
@@ -238,13 +245,13 @@ get_thread_messages(SessionId, ThreadId)
 %% Convenience
 %%--------------------------------------------------------------------
 
-%% @doc Count threads for a session.
+-doc "Count threads for a session.".
 -spec thread_count(binary()) -> non_neg_integer().
 thread_count(SessionId) when is_binary(SessionId) ->
     {ok, Threads} = list_threads(SessionId),
     length(Threads).
 
-%% @doc Get the currently active thread for a session.
+-doc "Get the currently active thread for a session.".
 -spec active_thread(binary()) -> {ok, binary()} | {error, none}.
 active_thread(SessionId) when is_binary(SessionId) ->
     ensure_table(),
@@ -253,7 +260,7 @@ active_thread(SessionId) when is_binary(SessionId) ->
         [] -> {error, none}
     end.
 
-%% @doc Set the active thread for a session.
+-doc "Set the active thread for a session.".
 -spec set_active_thread(binary(), binary()) -> ok.
 set_active_thread(SessionId, ThreadId)
   when is_binary(SessionId), is_binary(ThreadId) ->
@@ -261,7 +268,7 @@ set_active_thread(SessionId, ThreadId)
     ets:insert(?ACTIVE_TABLE, {SessionId, ThreadId}),
     ok.
 
-%% @doc Clear the active thread for a session.
+-doc "Clear the active thread for a session.".
 -spec clear_active_thread(binary()) -> ok.
 clear_active_thread(SessionId) when is_binary(SessionId) ->
     ensure_table(),

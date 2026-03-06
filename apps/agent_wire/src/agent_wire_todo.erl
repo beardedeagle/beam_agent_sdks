@@ -1,29 +1,28 @@
-%%%-------------------------------------------------------------------
-%%% @doc Todo tracking helpers for Claude Code agent messages.
-%%%
-%%% The Claude Code CLI uses the `TodoWrite' tool internally to track
-%%% multi-step task progress. Each todo item has a content description,
-%%% status (pending | in_progress | completed), and an activeForm for
-%%% display during execution.
-%%%
-%%% This module provides convenience functions for extracting and
-%%% querying todo state from agent message streams. Useful for:
-%%%   - Building progress indicators in client applications
-%%%   - Monitoring multi-step task completion
-%%%   - Extracting structured task breakdowns from agent responses
-%%%
-%%% ## Usage
-%%%
-%%% ```
-%%% Messages = claude_agent_sdk:query(Session, "Build a REST API"),
-%%% Todos = agent_wire_todo:extract_todos(Messages),
-%%% Completed = agent_wire_todo:filter_by_status(Todos, completed),
-%%% io:format("~b/~b tasks complete~n",
-%%%     [length(Completed), length(Todos)]).
-%%% ```
-%%% @end
-%%%-------------------------------------------------------------------
 -module(agent_wire_todo).
+-moduledoc """
+Todo tracking helpers for Claude Code agent messages.
+
+The Claude Code CLI uses the `TodoWrite` tool internally to track
+multi-step task progress. Each todo item has a content description,
+status (pending | in_progress | completed), and an activeForm for
+display during execution.
+
+This module provides convenience functions for extracting and
+querying todo state from agent message streams. Useful for:
+  - Building progress indicators in client applications
+  - Monitoring multi-step task completion
+  - Extracting structured task breakdowns from agent responses
+
+## Usage
+
+```erlang
+Messages = claude_agent_sdk:query(Session, "Build a REST API"),
+Todos = agent_wire_todo:extract_todos(Messages),
+Completed = agent_wire_todo:filter_by_status(Todos, completed),
+io:format("~b/~b tasks complete~n",
+    [length(Completed), length(Todos)]).
+```
+""".
 
 -export([
     extract_todos/1,
@@ -49,20 +48,24 @@
 %% API
 %%--------------------------------------------------------------------
 
-%% @doc Extract all TodoWrite tool use blocks from a list of messages.
-%%      Scans assistant messages for tool_use content blocks where the
-%%      tool name is `TodoWrite'. Returns a flat list of todo items.
+-doc """
+Extract all `TodoWrite` tool use blocks from a list of messages.
+Scans assistant messages for `tool_use` content blocks where the
+tool name is `TodoWrite`. Returns a flat list of todo items.
+""".
 -spec extract_todos([agent_wire:message()]) -> [todo_item()].
 extract_todos(Messages) when is_list(Messages) ->
     lists:flatmap(fun extract_from_message/1, Messages).
 
-%% @doc Filter todo items by status.
+-doc "Filter todo items by status.".
 -spec filter_by_status([todo_item()], todo_status()) -> [todo_item()].
 filter_by_status(Todos, Status) ->
     [T || #{status := S} = T <- Todos, S =:= Status].
 
-%% @doc Return a summary map of todo counts by status.
-%%      Example: #{pending => 2, in_progress => 1, completed => 3, total => 6}
+-doc """
+Return a summary map of todo counts by status.
+Example: `#{pending => 2, in_progress => 1, completed => 3, total => 6}`
+""".
 -spec todo_summary([todo_item()]) -> #{atom() => non_neg_integer()}.
 todo_summary(Todos) ->
     Counts = lists:foldl(fun(#{status := S}, Acc) ->

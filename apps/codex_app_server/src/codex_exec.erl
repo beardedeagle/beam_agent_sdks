@@ -1,19 +1,22 @@
-%%%-------------------------------------------------------------------
-%%% @doc Codex exec mode adapter — gen_statem for one-shot queries.
-%%%
-%%% Simpler fallback transport using `codex exec --output-format jsonl`.
-%%% Each query spawns a new port process. No initialize handshake,
-%%% no thread/turn management, no approval callbacks.
-%%%
-%%% State machine:
-%%%   idle -> active_query -> idle -> ...
-%%%                |
-%%%                +-> error
-%%%
-%%% Implements agent_wire_behaviour for unified consumer API.
-%%% @end
-%%%-------------------------------------------------------------------
 -module(codex_exec).
+
+-moduledoc """
+Codex exec mode adapter -- `gen_statem` for one-shot queries.
+
+Simpler fallback transport using `codex exec --output-format jsonl`.
+Each query spawns a new port process. No initialize handshake,
+no thread/turn management, no approval callbacks.
+
+State machine:
+
+```
+idle -> active_query -> idle -> ...
+             |
+             +-> error
+```
+
+Implements `agent_wire_behaviour` for unified consumer API.
+""".
 
 -behaviour(gen_statem).
 -behaviour(agent_wire_behaviour).
