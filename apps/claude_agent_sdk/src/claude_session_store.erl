@@ -1,18 +1,20 @@
-%%%-------------------------------------------------------------------
-%%% @doc Session management utilities for reading Claude Code transcripts.
-%%%
-%%% Reads transcript files from ~/.claude/projects/<sanitized_cwd>/<uuid>.jsonl
-%%% following the TS SDK's listSessions() / getSessionMessages() API.
-%%%
-%%% Cross-referenced against TS SDK v0.2.66 and Python SDK for
-%%% filesystem layout and path sanitization rules.
-%%%
-%%% Usage:
-%%%   {ok, Sessions} = claude_session_store:list_sessions(),
-%%%   {ok, Messages} = claude_session_store:get_session_messages(SessionId)
-%%% @end
-%%%-------------------------------------------------------------------
 -module(claude_session_store).
+
+-moduledoc """
+Session management utilities for reading Claude Code transcripts.
+
+Reads transcript files from `~/.claude/projects/<sanitized_cwd>/<uuid>.jsonl`
+following the TS SDK's `listSessions()` / `getSessionMessages()` API.
+
+Cross-referenced against TS SDK v0.2.66 and Python SDK for
+filesystem layout and path sanitization rules.
+
+Usage:
+```erlang
+{ok, Sessions} = claude_session_store:list_sessions(),
+{ok, Messages} = claude_session_store:get_session_messages(SessionId)
+```
+""".
 
 -include_lib("kernel/include/file.hrl").
 
@@ -62,8 +64,10 @@
 %% API
 %%--------------------------------------------------------------------
 
-%% @doc Get the Claude config directory.
-%%      Returns CLAUDE_CONFIG_DIR env var or ~/.claude.
+-doc """
+Get the Claude config directory.
+Returns `CLAUDE_CONFIG_DIR` env var or `~/.claude`.
+""".
 -spec config_dir() -> binary().
 config_dir() ->
     case os:getenv("CLAUDE_CONFIG_DIR") of
@@ -80,10 +84,12 @@ config_dir() ->
             unicode:characters_to_binary(Dir)
     end.
 
-%% @doc Sanitize a filesystem path for use as a project directory name.
-%%      Non-alphanumeric characters are replaced with '-'.
-%%      Paths longer than 200 chars are truncated with a hash suffix.
-%%      Matches TS SDK sanitizePath() behavior.
+-doc """
+Sanitize a filesystem path for use as a project directory name.
+Non-alphanumeric characters are replaced with `-`.
+Paths longer than 200 chars are truncated with a hash suffix.
+Matches TS SDK `sanitizePath()` behavior.
+""".
 -spec sanitize_path(binary()) -> binary().
 sanitize_path(Path) when is_binary(Path) ->
     Sanitized = sanitize_chars(Path),
@@ -98,16 +104,18 @@ sanitize_path(Path) when is_binary(Path) ->
             Sanitized
     end.
 
-%% @doc List all session transcripts. Equivalent to list_sessions(#{}).
+-doc "List all session transcripts. Equivalent to `list_sessions(#{})`.".
 -spec list_sessions() -> {ok, [session_summary()]}.
 list_sessions() ->
     list_sessions(#{}).
 
-%% @doc List session transcripts with optional filters.
-%%      Options:
-%%        cwd — filter to sessions from this working directory
-%%        limit — maximum number of sessions to return
-%%        config_dir — override config directory
+-doc """
+List session transcripts with optional filters.
+Options:
+  - `cwd` — filter to sessions from this working directory
+  - `limit` — maximum number of sessions to return
+  - `config_dir` — override config directory
+""".
 -spec list_sessions(list_opts()) -> {ok, [session_summary()]}.
 list_sessions(Opts) ->
     BaseDir = maps:get(config_dir, Opts, config_dir()),
@@ -139,16 +147,17 @@ list_sessions(Opts) ->
             {ok, Limited}
     end.
 
-%% @doc Get all messages from a session transcript.
-%%      Equivalent to get_session_messages(SessionId, #{}).
+-doc "Get all messages from a session transcript. Equivalent to `get_session_messages(SessionId, #{})`.".
 -spec get_session_messages(binary()) ->
     {ok, [map()]} | {error, atom()}.
 get_session_messages(SessionId) ->
     get_session_messages(SessionId, #{}).
 
-%% @doc Get all messages from a session transcript with options.
-%%      Parses the full JSONL file and reconstructs conversation order
-%%      using parentUuid chain when available.
+-doc """
+Get all messages from a session transcript with options.
+Parses the full JSONL file and reconstructs conversation order
+using `parentUuid` chain when available.
+""".
 -spec get_session_messages(binary(), message_opts()) ->
     {ok, [map()]} | {error, atom()}.
 get_session_messages(SessionId, Opts) ->
@@ -161,7 +170,7 @@ get_session_messages(SessionId, Opts) ->
             Err
     end.
 
-%% @doc Find a session file by ID across all project directories.
+-doc "Find a session file by ID across all project directories.".
 -spec find_session_file(binary(), binary()) ->
     {ok, binary()} | {error, not_found}.
 find_session_file(SessionId, ProjectsDir) ->
@@ -176,7 +185,7 @@ find_session_file(SessionId, ProjectsDir) ->
 %% Internal: File Discovery
 %%--------------------------------------------------------------------
 
-%% @doc Collect all .jsonl files from a directory (recursive 1 level).
+%% Collect all .jsonl files from a directory (recursive 1 level).
 -spec collect_session_files(binary()) -> {ok, [binary()]}.
 collect_session_files(Dir) ->
     DirStr = binary_to_list(Dir),
@@ -198,8 +207,8 @@ collect_session_files(Dir) ->
 %% Internal: Metadata Extraction
 %%--------------------------------------------------------------------
 
-%% @doc Extract a session summary from a JSONL file.
-%%      Reads only a 64KB head sample for efficiency (fast, no full parse).
+%% Extract a session summary from a JSONL file.
+%% Reads only a 64KB head sample for efficiency (fast, no full parse).
 -spec extract_summary(binary()) -> {true, session_summary()} | false.
 extract_summary(FilePath) ->
     FilePathStr = binary_to_list(FilePath),
@@ -231,8 +240,8 @@ extract_summary(FilePath) ->
             false
     end.
 
-%% @doc Enrich a session summary with metadata from the file head.
-%%      Extracts model and cwd from system init messages.
+%% Enrich a session summary with metadata from the file head.
+%% Extracts model and cwd from system init messages.
 -spec enrich_summary(session_summary(), binary()) -> session_summary().
 enrich_summary(Summary, Data) ->
     Lines = binary:split(Data, <<"\n">>, [global, trim_all]),
@@ -253,7 +262,7 @@ enrich_summary(Summary, Data) ->
 %% Internal: Session Parsing
 %%--------------------------------------------------------------------
 
-%% @doc Parse a full session JSONL file into a list of messages.
+%% Parse a full session JSONL file into a list of messages.
 -spec parse_session_file(binary()) -> {ok, [map()]} | {error, atom()}.
 parse_session_file(FilePath) ->
     case file:read_file(binary_to_list(FilePath)) of
@@ -273,8 +282,8 @@ parse_session_file(FilePath) ->
             Err
     end.
 
-%% @doc Reconstruct conversation order using parentUuid chain.
-%%      If no parentUuid fields are present, preserves original order.
+%% Reconstruct conversation order using parentUuid chain.
+%% If no parentUuid fields are present, preserves original order.
 -spec reconstruct_order([map()]) -> [map()].
 reconstruct_order(Messages) ->
     HasParent = lists:any(fun(M) ->
@@ -287,7 +296,7 @@ reconstruct_order(Messages) ->
             chain_by_parent(Messages)
     end.
 
-%% @doc Reconstruct order by walking the parentUuid chain.
+%% Reconstruct order by walking the parentUuid chain.
 -spec chain_by_parent([map()]) -> [map()].
 chain_by_parent(Messages) ->
     %% Build UUID -> Message index
@@ -316,8 +325,8 @@ chain_by_parent(Messages) ->
     %% Walk depth-first from roots using accumulator (no ++ or flatten)
     lists:reverse(walk_tree_acc(Roots, ChildIndex, [])).
 
-%% @doc Depth-first tree walk with accumulator — O(n) total.
-%%      Eliminates both lists:flatten and ++ from the recursive path.
+%% Depth-first tree walk with accumulator — O(n) total.
+%% Eliminates both lists:flatten and ++ from the recursive path.
 -spec walk_tree_acc([map()], map(), [map()]) -> [map()].
 walk_tree_acc([], _ChildIndex, Acc) -> Acc;
 walk_tree_acc([Msg | Rest], ChildIndex, Acc) ->
@@ -330,7 +339,7 @@ walk_tree_acc([Msg | Rest], ChildIndex, Acc) ->
 %% Internal: Path Sanitization
 %%--------------------------------------------------------------------
 
-%% @doc Replace non-alphanumeric characters with '-'.
+%% Replace non-alphanumeric characters with '-'.
 -spec sanitize_chars(binary()) -> binary().
 sanitize_chars(Bin) ->
     << <<(sanitize_char(C))/integer>> || <<C>> <= Bin >>.
@@ -345,7 +354,7 @@ sanitize_char(_) -> $-.
 %% Internal: JSON Helpers
 %%--------------------------------------------------------------------
 
-%% @doc Safely decode a JSON line, returning undefined on failure.
+%% Safely decode a JSON line, returning undefined on failure.
 -spec safe_decode(binary()) -> map() | undefined.
 safe_decode(Line) ->
     try json:decode(Line) of

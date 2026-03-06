@@ -1,21 +1,23 @@
-%%%-------------------------------------------------------------------
-%%% @doc Gemini CLI adapter — gen_statem for one-shot queries.
-%%%
-%%% Port/JSONL-based adapter using `gemini --prompt PROMPT
-%%% --output-format stream-json'. Each query spawns a new port process.
-%%% No initialize handshake, no thread management, no approval callbacks.
-%%% Session IDs are captured from init events and reused via --resume
-%%% on subsequent queries within the same session process.
-%%%
-%%% State machine:
-%%%   idle -> active_query -> idle -> ...
-%%%                |
-%%%                +-> error
-%%%
-%%% Implements agent_wire_behaviour for unified consumer API.
-%%% @end
-%%%-------------------------------------------------------------------
 -module(gemini_cli_session).
+
+-moduledoc """
+Gemini CLI adapter -- `gen_statem` for one-shot queries.
+
+Port/JSONL-based adapter using `gemini --prompt PROMPT
+--output-format stream-json`. Each query spawns a new port process.
+No initialize handshake, no thread management, no approval callbacks.
+Session IDs are captured from init events and reused via `--resume`
+on subsequent queries within the same session process.
+
+State machine:
+```
+idle -> active_query -> idle -> ...
+              |
+              +-> error
+```
+
+Implements `agent_wire_behaviour` for unified consumer API.
+""".
 
 -behaviour(gen_statem).
 -behaviour(agent_wire_behaviour).
@@ -631,9 +633,9 @@ close_port(Port) ->
 %% Internal: MCP + Hook Registry Building
 %%====================================================================
 
-%% @doc Build an MCP registry from the sdk_mcp_servers option.
-%%      Stored for API parity. Gemini CLI (unidirectional Port/JSONL)
-%%      does not support in-process tool dispatch — no callback protocol.
+%% Build an MCP registry from the sdk_mcp_servers option.
+%% Stored for API parity. Gemini CLI (unidirectional Port/JSONL)
+%% does not support in-process tool dispatch -- no callback protocol.
 -spec build_mcp_registry(map()) -> agent_wire_mcp:mcp_registry() | undefined.
 build_mcp_registry(Opts) ->
     agent_wire_mcp:build_registry(maps:get(sdk_mcp_servers, Opts, undefined)).

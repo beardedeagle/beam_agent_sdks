@@ -1,32 +1,33 @@
-%%%-------------------------------------------------------------------
-%%% @doc SDK-level lifecycle hooks for the BEAM Agent SDK.
-%%%
-%%% Enables users to register in-process callback functions that fire
-%%% at key session lifecycle points. Cross-referenced against TS SDK
-%%% v0.2.66 SessionConfig.hooks and Python SDK hook support.
-%%%
-%%% Two categories of hooks:
-%%%   - Blocking: pre_tool_use, user_prompt_submit — may return
-%%%     {deny, Reason} to prevent the action.
-%%%   - Notification-only: post_tool_use, stop, session_start,
-%%%     session_end — {deny, _} returns are ignored.
-%%%
-%%% Matchers (optional) filter which tools a hook fires on:
-%%%   - Exact match: #{tool_name => <<"Bash">>}
-%%%   - Regex pattern: #{tool_name => <<"Read.*">>}
-%%%
-%%% Usage:
-%%%   Hook = agent_wire_hooks:hook(pre_tool_use, fun(Ctx) ->
-%%%       case maps:get(tool_name, Ctx, <<>>) of
-%%%           <<"Bash">> -> {deny, <<"No shell access">>};
-%%%           _ -> ok
-%%%       end
-%%%   end),
-%%%   %% Pass to session:
-%%%   claude_agent_session:start_link(#{sdk_hooks => [Hook]})
-%%% @end
-%%%-------------------------------------------------------------------
 -module(agent_wire_hooks).
+-moduledoc """
+SDK-level lifecycle hooks for the BEAM Agent SDK.
+
+Enables users to register in-process callback functions that fire
+at key session lifecycle points. Cross-referenced against TS SDK
+v0.2.66 SessionConfig.hooks and Python SDK hook support.
+
+Two categories of hooks:
+  - Blocking: pre_tool_use, user_prompt_submit — may return
+    {deny, Reason} to prevent the action.
+  - Notification-only: post_tool_use, stop, session_start,
+    session_end — {deny, _} returns are ignored.
+
+Matchers (optional) filter which tools a hook fires on:
+  - Exact match: #{tool_name => <<"Bash">>}
+  - Regex pattern: #{tool_name => <<"Read.*">>}
+
+Usage:
+```erlang
+Hook = agent_wire_hooks:hook(pre_tool_use, fun(Ctx) ->
+    case maps:get(tool_name, Ctx, <<>>) of
+        <<"Bash">> -> {deny, <<"No shell access">>};
+        _ -> ok
+    end
+end),
+%% Pass to session:
+claude_agent_session:start_link(#{sdk_hooks => [Hook]})
+```
+""".
 
 -export([
     %% Constructors
@@ -115,16 +116,18 @@
 %% Constructors
 %%--------------------------------------------------------------------
 
-%% @doc Create a hook that fires on all occurrences of an event.
+-doc "Create a hook that fires on all occurrences of an event.".
 -spec hook(hook_event(), hook_callback()) -> hook_def().
 hook(Event, Callback) when is_atom(Event), is_function(Callback, 1) ->
     #{event => Event, callback => Callback}.
 
-%% @doc Create a hook with a matcher filter.
-%%      The matcher's tool_name (exact or regex) restricts which tools
-%%      trigger the hook. Only relevant for tool-related events.
-%%      The regex pattern is pre-compiled at registration time for
-%%      O(1) dispatch. Invalid patterns crash here (fail-fast).
+-doc """
+Create a hook with a matcher filter.
+The matcher's `tool_name` (exact or regex) restricts which tools
+trigger the hook. Only relevant for tool-related events.
+The regex pattern is pre-compiled at registration time for
+O(1) dispatch. Invalid patterns crash here (fail-fast).
+""".
 -spec hook(hook_event(), hook_callback(), hook_matcher()) -> hook_def().
 hook(Event, Callback, #{tool_name := Pattern} = Matcher)
   when is_atom(Event), is_function(Callback, 1), is_map(Matcher) ->
@@ -139,19 +142,21 @@ hook(Event, Callback, Matcher)
 %% Registry Management
 %%--------------------------------------------------------------------
 
-%% @doc Create an empty hook registry.
+-doc "Create an empty hook registry.".
 -spec new_registry() -> hook_registry().
 new_registry() -> #{}.
 
-%% @doc Register a single hook in the registry.
-%%      Hooks are prepended (O(1)) and reversed at fire time to
-%%      preserve registration order without O(n) append per call.
+-doc """
+Register a single hook in the registry.
+Hooks are prepended (O(1)) and reversed at fire time to
+preserve registration order without O(n) append per call.
+""".
 -spec register_hook(hook_def(), hook_registry()) -> hook_registry().
 register_hook(#{event := Event} = HookDef, Registry) ->
     Existing = maps:get(Event, Registry, []),
     Registry#{Event => [HookDef | Existing]}.
 
-%% @doc Register multiple hooks in the registry.
+-doc "Register multiple hooks in the registry.".
 -spec register_hooks([hook_def()], hook_registry()) -> hook_registry().
 register_hooks(Hooks, Registry) when is_list(Hooks) ->
     lists:foldl(fun register_hook/2, Registry, Hooks).
@@ -160,9 +165,11 @@ register_hooks(Hooks, Registry) when is_list(Hooks) ->
 %% Convenience: Build Registry from Session Opts
 %%--------------------------------------------------------------------
 
-%% @doc Build a hook registry from a list of hook definitions.
-%%      Returns `undefined' when no hooks are configured (empty list
-%%      or `undefined'). Used by all adapter session modules during init.
+-doc """
+Build a hook registry from a list of hook definitions.
+Returns `undefined` when no hooks are configured (empty list
+or `undefined`). Used by all adapter session modules during init.
+""".
 -spec build_registry([hook_def()] | undefined) ->
     hook_registry() | undefined.
 build_registry(undefined) -> undefined;
@@ -174,18 +181,20 @@ build_registry(Hooks) when is_list(Hooks) ->
 %% Dispatch
 %%--------------------------------------------------------------------
 
-%% @doc Fire all hooks registered for an event.
-%%
-%%      For blocking events (pre_tool_use, user_prompt_submit):
-%%        - Returns {deny, Reason} on first deny, stopping iteration.
-%%        - Returns ok if all hooks return ok.
-%%
-%%      For notification-only events (post_tool_use, stop,
-%%      session_start, session_end):
-%%        - Always returns ok regardless of callback returns.
-%%
-%%      Handles undefined registry (no hooks configured) gracefully.
-%%      Each callback is wrapped in try/catch for crash protection.
+-doc """
+Fire all hooks registered for an event.
+
+For blocking events (`pre_tool_use`, `user_prompt_submit`):
+- Returns `{deny, Reason}` on first deny, stopping iteration.
+- Returns `ok` if all hooks return `ok`.
+
+For notification-only events (`post_tool_use`, `stop`,
+`session_start`, `session_end`):
+- Always returns `ok` regardless of callback returns.
+
+Handles `undefined` registry (no hooks configured) gracefully.
+Each callback is wrapped in try/catch for crash protection.
+""".
 -spec fire(hook_event(), hook_context(), hook_registry() | undefined) ->
     ok | {deny, binary()}.
 fire(_Event, _Context, undefined) ->
@@ -204,13 +213,13 @@ fire(Event, Context, Registry) when is_map(Registry) ->
 %% Internal
 %%--------------------------------------------------------------------
 
-%% @doc Events where callbacks may block (deny) the action.
+%% Events where callbacks may block (deny) the action.
 -spec is_blocking_event(hook_event()) -> boolean().
 is_blocking_event(pre_tool_use) -> true;
 is_blocking_event(user_prompt_submit) -> true;
 is_blocking_event(_) -> false.
 
-%% @doc Fire hooks for blocking events — stop on first deny.
+%% Fire hooks for blocking events -- stop on first deny.
 -spec fire_blocking([hook_def()], hook_context()) -> ok | {deny, binary()}.
 fire_blocking([], _Context) ->
     ok;
@@ -227,7 +236,7 @@ fire_blocking([Hook | Rest], Context) ->
             end
     end.
 
-%% @doc Fire hooks for notification-only events — ignore returns.
+%% Fire hooks for notification-only events -- ignore returns.
 -spec fire_notification([hook_def()], hook_context()) -> ok.
 fire_notification([], _Context) ->
     ok;
@@ -240,8 +249,8 @@ fire_notification([Hook | Rest], Context) ->
             fire_notification(Rest, Context)
     end.
 
-%% @doc Invoke a hook callback with crash protection.
-%%      Returns ok on crash/throw (logged via logger).
+%% Invoke a hook callback with crash protection.
+%% Returns ok on crash/throw (logged via logger).
 -spec safe_call(hook_def(), hook_context()) -> ok | {deny, binary()}.
 safe_call(#{callback := Callback}, Context) ->
     try Callback(Context) of
@@ -255,10 +264,10 @@ safe_call(#{callback := Callback}, Context) ->
             ok
     end.
 
-%% @doc Check if a hook's matcher allows it to fire for this context.
-%%      Uses pre-compiled regex when available (from hook/3).
-%%      Falls back to runtime compilation for externally-constructed defs.
-%%      No matcher means fire on everything.
+%% Check if a hook's matcher allows it to fire for this context.
+%% Uses pre-compiled regex when available (from hook/3).
+%% Falls back to runtime compilation for externally-constructed defs.
+%% No matcher means fire on everything.
 -spec matches_context(hook_def(), hook_context()) -> boolean().
 matches_context(#{compiled_re := CompiledRe}, Context) ->
     ToolName = maps:get(tool_name, Context, <<>>),

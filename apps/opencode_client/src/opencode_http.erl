@@ -1,12 +1,12 @@
-%%%-------------------------------------------------------------------
-%%% @doc Pure HTTP request/response helpers for OpenCode client.
-%%%
-%%% No processes. All functions are pure transformations used by
-%%% opencode_session to build gun HTTP requests. Handles URL parsing,
-%%% path construction, authentication, and header generation.
-%%% @end
-%%%-------------------------------------------------------------------
 -module(opencode_http).
+
+-moduledoc """
+Pure HTTP request/response helpers for OpenCode client.
+
+No processes. All functions are pure transformations used by
+opencode_session to build gun HTTP requests. Handles URL parsing,
+path construction, authentication, and header generation.
+""".
 
 -export([
     parse_base_url/1,
@@ -22,15 +22,20 @@
 %% Public API
 %%====================================================================
 
-%% @doc Parse a base URL into {Host, Port, BasePath} tuple.
-%%
-%%      Handles http:// and https:// schemes, extracting the host,
-%%      port (with scheme defaults of 80/443), and any path prefix.
-%%
-%%      Examples:
-%%        "http://localhost:4096"      → {<<"localhost">>, 4096, <<>>}
-%%        "http://localhost:4096/api"  → {<<"localhost">>, 4096, <<"/api">>}
-%%        "https://api.example.com"   → {<<"api.example.com">>, 443, <<>>}
+-doc """
+Parse a base URL into `{Host, Port, BasePath}` tuple.
+
+Handles `http://` and `https://` schemes, extracting the host,
+port (with scheme defaults of 80/443), and any path prefix.
+
+Examples:
+
+```
+"http://localhost:4096"      -> {<<"localhost">>, 4096, <<>>}
+"http://localhost:4096/api"  -> {<<"localhost">>, 4096, <<"/api">>}
+"https://api.example.com"   -> {<<"api.example.com">>, 443, <<>>}
+```
+""".
 -spec parse_base_url(binary() | string()) ->
     {binary(), inet:port_number(), binary()}.
 parse_base_url(Url) when is_list(Url) ->
@@ -51,23 +56,27 @@ parse_base_url(Url) when is_binary(Url) ->
     end,
     {Host, Port, BasePath}.
 
-%% @doc Join a base path with an endpoint path (and optional segments).
-%%
-%%      Concatenates all segments into a single iolist and converts to
-%%      binary. No URL encoding is performed.
+-doc """
+Join a base path with an endpoint path (and optional segments).
+
+Concatenates all segments into a single iolist and converts to
+binary. No URL encoding is performed.
+""".
 -spec build_path(binary(), iodata()) -> binary().
 build_path(BasePath, Endpoint) ->
     iolist_to_binary([BasePath, Endpoint]).
 
-%% @doc Build authorization headers for the given auth config.
+-doc "Build authorization headers for the given auth config.".
 -spec auth_headers(none | {basic, binary()}) -> [{binary(), binary()}].
 auth_headers(none) ->
     [];
 auth_headers({basic, Encoded}) ->
     [{<<"authorization">>, <<"Basic ", Encoded/binary>>}].
 
-%% @doc Build common request headers (content-type, accept, x-opencode-directory,
-%%      and any auth headers).
+-doc """
+Build common request headers (content-type, accept, x-opencode-directory,
+and any auth headers).
+""".
 -spec common_headers(none | {basic, binary()}, binary()) ->
     [{binary(), binary()}].
 common_headers(Auth, Dir) ->
@@ -78,7 +87,7 @@ common_headers(Auth, Dir) ->
         | auth_headers(Auth)
     ].
 
-%% @doc Base64-encode "user:pass" for HTTP Basic auth.
+-doc "Base64-encode `\"user:pass\"` for HTTP Basic auth.".
 -spec encode_basic_auth(binary(), binary()) -> {basic, binary()}.
 encode_basic_auth(User, Pass) ->
     {basic, base64:encode(<<User/binary, ":", Pass/binary>>)}.

@@ -1,18 +1,18 @@
-%%%-------------------------------------------------------------------
-%%% @doc Copilot session event normalization and wire format builders.
-%%%
-%%% Maps Copilot session events (from session.event notifications)
-%%% to agent_wire:message() types, and builds JSON-RPC params for
-%%% outgoing Copilot RPC methods.
-%%%
-%%% Copilot uses a rich event model with typed session events:
-%%%   assistant.message, assistant.message_delta, session.idle,
-%%%   tool.executing, tool.completed, permission.request, etc.
-%%%
-%%% Pure functions — no processes, no state.
-%%% @end
-%%%-------------------------------------------------------------------
 -module(copilot_protocol).
+
+-moduledoc """
+Copilot session event normalization and wire format builders.
+
+Maps Copilot session events (from `session.event` notifications)
+to `agent_wire:message()` types, and builds JSON-RPC params for
+outgoing Copilot RPC methods.
+
+Copilot uses a rich event model with typed session events:
+`assistant.message`, `assistant.message_delta`, `session.idle`,
+`tool.executing`, `tool.completed`, `permission.request`, etc.
+
+Pure functions -- no processes, no state.
+""".
 
 -export([
     %% Event normalization
@@ -72,8 +72,10 @@
 %% Event Normalization
 %%====================================================================
 
-%% @doc Normalize a Copilot session event into an agent_wire:message().
-%%      The event map contains a "type" field and a "data" sub-map.
+-doc """
+Normalize a Copilot session event into an `agent_wire:message()`.
+The event map contains a `<<"type">>` field and a `<<"data">>` sub-map.
+""".
 -spec normalize_event(map()) -> agent_wire:message().
 
 %% --- Assistant Messages ---
@@ -220,7 +222,7 @@ normalize_event(Event) when is_map(Event) ->
 %% Wire Format Builders
 %%====================================================================
 
-%% @doc Build params for session.create RPC call.
+-doc "Build params for `session.create` RPC call.".
 -spec build_session_create_params(map()) -> map().
 build_session_create_params(Opts) ->
     Params = #{},
@@ -254,14 +256,14 @@ build_session_create_params(Opts) ->
     maybe_put_opt(<<"tools">>, maps:get(sdk_tools, Opts, undefined),
                    fun build_tool_definitions/1, P17).
 
-%% @doc Build params for session.resume RPC call.
+-doc "Build params for `session.resume` RPC call.".
 -spec build_session_resume_params(binary(), map()) -> map().
 build_session_resume_params(SessionId, Opts) ->
     Base = build_session_create_params(Opts),
     P1 = Base#{<<"sessionId">> => SessionId},
     maybe_put(<<"disableResume">>, maps:get(disable_resume, Opts, undefined), P1).
 
-%% @doc Build params for session.send RPC call.
+-doc "Build params for `session.send` RPC call.".
 -spec build_session_send_params(binary(), binary(), map()) -> map().
 build_session_send_params(SessionId, Prompt, Params) ->
     Base = #{<<"sessionId">> => SessionId, <<"prompt">> => Prompt},
@@ -270,7 +272,7 @@ build_session_send_params(SessionId, Prompt, Params) ->
     P2 = maybe_put(<<"mode">>, maps:get(mode, Params, undefined), P1),
     maybe_put(<<"outputFormat">>, maps:get(output_format, Params, undefined), P2).
 
-%% @doc Build response for a tool.call server request.
+-doc "Build response for a `tool.call` server request.".
 -spec build_tool_result(map(), map()) -> map().
 build_tool_result(Result, _Context) ->
     Base = #{},
@@ -287,7 +289,7 @@ build_tool_result(Result, _Context) ->
               maps:get(session_log, Result,
                 maps:get(<<"sessionLog">>, Result, undefined)), P3).
 
-%% @doc Build response for a permission.request server request.
+-doc "Build response for a `permission.request` server request.".
 -spec build_permission_result(agent_wire:permission_result() | map()) -> map().
 build_permission_result({allow, _}) ->
     #{<<"result">> => #{<<"kind">> => <<"approved">>}};
@@ -301,13 +303,13 @@ build_permission_result(_) ->
     #{<<"result">> => #{<<"kind">> =>
         <<"denied-no-approval-rule-and-could-not-request-from-user">>}}.
 
-%% @doc Build response for a hooks.invoke server request.
+-doc "Build response for a `hooks.invoke` server request.".
 -spec build_hook_result(term()) -> map().
 build_hook_result(undefined) -> #{};
 build_hook_result(Result) when is_map(Result) -> Result;
 build_hook_result(_) -> #{}.
 
-%% @doc Build response for a user_input.request server request.
+-doc "Build response for a `user_input.request` server request.".
 -spec build_user_input_result(map()) -> map().
 build_user_input_result(#{answer := Answer} = Result) ->
     WasFreeform = maps:get(was_freeform, Result,
@@ -323,8 +325,10 @@ build_user_input_result(_) ->
 %% JSON-RPC 2.0 Encoding (with "jsonrpc" field)
 %%====================================================================
 
-%% @doc Encode a JSON-RPC 2.0 request.
-%%      Unlike Codex, Copilot includes "jsonrpc":"2.0" on the wire.
+-doc """
+Encode a JSON-RPC 2.0 request.
+Unlike Codex, Copilot includes `"jsonrpc":"2.0"` on the wire.
+""".
 -spec encode_request(binary(), binary(), map() | undefined) -> map().
 encode_request(Id, Method, undefined) ->
     #{<<"jsonrpc">> => <<"2.0">>, <<"id">> => Id, <<"method">> => Method,
@@ -333,18 +337,18 @@ encode_request(Id, Method, Params) when is_map(Params) ->
     #{<<"jsonrpc">> => <<"2.0">>, <<"id">> => Id, <<"method">> => Method,
       <<"params">> => Params}.
 
-%% @doc Encode a JSON-RPC 2.0 success response.
+-doc "Encode a JSON-RPC 2.0 success response.".
 -spec encode_response(binary() | integer(), term()) -> map().
 encode_response(Id, Result) ->
     #{<<"jsonrpc">> => <<"2.0">>, <<"id">> => Id, <<"result">> => Result}.
 
-%% @doc Encode a JSON-RPC 2.0 error response (without data).
+-doc "Encode a JSON-RPC 2.0 error response (without data).".
 -spec encode_error_response(binary() | integer(), integer(), binary()) -> map().
 encode_error_response(Id, Code, Message) ->
     #{<<"jsonrpc">> => <<"2.0">>, <<"id">> => Id,
       <<"error">> => #{<<"code">> => Code, <<"message">> => Message}}.
 
-%% @doc Encode a JSON-RPC 2.0 error response (with data).
+-doc "Encode a JSON-RPC 2.0 error response (with data).".
 -spec encode_error_response(binary() | integer(), integer(), binary(), term()) -> map().
 encode_error_response(Id, Code, Message, Data) ->
     #{<<"jsonrpc">> => <<"2.0">>, <<"id">> => Id,
@@ -355,7 +359,7 @@ encode_error_response(Id, Code, Message, Data) ->
 %% CLI Command Building
 %%====================================================================
 
-%% @doc Build CLI arguments for starting the Copilot server process.
+-doc "Build CLI arguments for starting the Copilot server process.".
 -spec build_cli_args(map()) -> [string()].
 build_cli_args(Opts) ->
     Base = ["server", "--stdio"],
@@ -381,7 +385,7 @@ build_cli_args(Opts) ->
             ["server" | ExtraStrings ++ UserExtra]
     end.
 
-%% @doc Build environment variables for the CLI process.
+-doc "Build environment variables for the CLI process.".
 -spec build_env(map()) -> [{string(), string()}].
 build_env(Opts) ->
     BaseEnv = [
@@ -404,7 +408,7 @@ build_env(Opts) ->
     end,
     BaseEnv ++ TokenEnv ++ UserEnv.
 
-%% @doc Return the SDK protocol version number.
+-doc "Return the SDK protocol version number.".
 -spec sdk_protocol_version() -> pos_integer().
 sdk_protocol_version() -> ?SDK_PROTOCOL_VERSION.
 
@@ -412,7 +416,7 @@ sdk_protocol_version() -> ?SDK_PROTOCOL_VERSION.
 %% Internal Helpers
 %%====================================================================
 
-%% @private Add optional fields from assistant message data.
+%% Add optional fields from assistant message data.
 -spec maybe_add_message_fields(map(), map()) -> map().
 maybe_add_message_fields(Base, Data) ->
     Fields = [
@@ -427,7 +431,7 @@ maybe_add_message_fields(Base, Data) ->
         end
     end, Base, Fields).
 
-%% @private Add tool_use_id if present.
+%% Add tool_use_id if present.
 -spec maybe_add_tool_id(map(), map()) -> map().
 maybe_add_tool_id(Base, Data) ->
     case maps:get(<<"toolCallId">>, Data,
@@ -436,7 +440,7 @@ maybe_add_tool_id(Base, Data) ->
         ToolId -> Base#{tool_use_id => ToolId}
     end.
 
-%% @private Add usage info if present in data.
+%% Add usage info if present in data.
 -spec maybe_add_usage(map(), map()) -> map().
 maybe_add_usage(Base, Data) ->
     case maps:get(<<"usage">>, Data, undefined) of
@@ -444,23 +448,23 @@ maybe_add_usage(Base, Data) ->
         Usage when is_map(Usage) -> Base#{usage => Usage}
     end.
 
-%% @private Conditionally add a key-value pair to a map.
+%% Conditionally add a key-value pair to a map.
 -spec maybe_put(binary(), term(), map()) -> map().
 maybe_put(_Key, undefined, Map) -> Map;
 maybe_put(Key, Value, Map) -> Map#{Key => Value}.
 
-%% @private Conditionally add a list value (skip if undefined or empty).
+%% Conditionally add a list value (skip if undefined or empty).
 -spec maybe_put_list(binary(), term(), map()) -> map().
 maybe_put_list(_Key, undefined, Map) -> Map;
 maybe_put_list(_Key, [], Map) -> Map;
 maybe_put_list(Key, List, Map) when is_list(List) -> Map#{Key => List}.
 
-%% @private Conditionally apply a transform and add to map.
+%% Conditionally apply a transform and add to map.
 -spec maybe_put_opt(binary(), term(), fun((term()) -> term()), map()) -> map().
 maybe_put_opt(_Key, undefined, _Fun, Map) -> Map;
 maybe_put_opt(Key, Value, Fun, Map) -> Map#{Key => Fun(Value)}.
 
-%% @private Build system message configuration for wire format.
+%% Build system message configuration for wire format.
 -spec build_system_message_config(map() | binary()) -> map().
 build_system_message_config(Config) when is_binary(Config) ->
     #{<<"mode">> => <<"append">>, <<"content">> => Config};
@@ -473,7 +477,7 @@ build_system_message_config(#{content := Content}) ->
 build_system_message_config(Config) when is_map(Config) ->
     Config.
 
-%% @private Build provider configuration for wire format.
+%% Build provider configuration for wire format.
 -spec build_provider_config(map()) -> map().
 build_provider_config(Config) when is_map(Config) ->
     Mapping = [
@@ -490,22 +494,22 @@ build_provider_config(Config) when is_map(Config) ->
         end
     end, #{}, Config).
 
-%% @private Build MCP servers configuration for wire format.
+%% Build MCP servers configuration for wire format.
 -spec build_mcp_servers_config(map()) -> map().
 build_mcp_servers_config(Config) when is_map(Config) ->
     Config.
 
-%% @private Build custom agents configuration for wire format.
+%% Build custom agents configuration for wire format.
 -spec build_custom_agents_config(list()) -> list().
 build_custom_agents_config(Agents) when is_list(Agents) ->
     Agents.
 
-%% @private Build infinite sessions configuration for wire format.
+%% Build infinite sessions configuration for wire format.
 -spec build_infinite_sessions_config(map()) -> map().
 build_infinite_sessions_config(Config) when is_map(Config) ->
     Config.
 
-%% @private Build tool definitions from SDK tool specs.
+%% Build tool definitions from SDK tool specs.
 -spec build_tool_definitions(list()) -> list().
 build_tool_definitions(Tools) when is_list(Tools) ->
     [build_tool_def(T) || T <- Tools].
@@ -532,14 +536,14 @@ build_tool_def(Tool) when is_map(Tool) ->
     %% Unknown structure — strip handler key to avoid encoding funs
     maps:without([handler], Tool).
 
-%% @private Ensure a value is a binary string.
+%% Ensure a value is a binary string.
 -spec ensure_binary(term()) -> binary().
 ensure_binary(V) when is_binary(V) -> V;
 ensure_binary(V) when is_list(V) -> list_to_binary(V);
 ensure_binary(V) when is_atom(V) -> atom_to_binary(V);
 ensure_binary(V) -> iolist_to_binary(io_lib:format("~p", [V])).
 
-%% @private Ensure a value is a list string.
+%% Ensure a value is a list string.
 -spec ensure_list(term()) -> string().
 ensure_list(V) when is_list(V) -> V;
 ensure_list(V) when is_binary(V) -> binary_to_list(V);

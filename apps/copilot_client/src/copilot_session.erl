@@ -1,29 +1,32 @@
-%%%-------------------------------------------------------------------
-%%% @doc Copilot CLI wire protocol adapter — gen_statem.
-%%%
-%%% Adapter for `copilot server --stdio` mode. Implements full
-%%% bidirectional JSON-RPC 2.0 over Content-Length framed stdio
-%%% with the Copilot CLI.
-%%%
-%%% State machine:
-%%%   connecting -> initializing -> ready -> active_query -> ready
-%%%                                  |              |
-%%%                                  +-> error <----+
-%%%
-%%% Key characteristics:
-%%%   - Standard JSON-RPC 2.0 (with "jsonrpc":"2.0" on wire)
-%%%   - Content-Length framing (NOT JSONL — LSP-style framing)
-%%%   - Port in `stream` mode (raw bytes, not line-delimited)
-%%%   - Server-initiated requests: tool.call, permission.request,
-%%%     hooks.invoke, user_input.request
-%%%   - Session created via session.create RPC
-%%%   - Query via session.send + session.event notifications
-%%%   - session.idle event signals query completion
-%%%
-%%% Implements agent_wire_behaviour for unified consumer API.
-%%% @end
-%%%-------------------------------------------------------------------
 -module(copilot_session).
+
+-moduledoc """
+Copilot CLI wire protocol adapter -- gen_statem.
+
+Adapter for `copilot server --stdio` mode. Implements full
+bidirectional JSON-RPC 2.0 over Content-Length framed stdio
+with the Copilot CLI.
+
+State machine:
+
+```
+connecting -> initializing -> ready -> active_query -> ready
+                                |              |
+                                +-> error <----+
+```
+
+Key characteristics:
+- Standard JSON-RPC 2.0 (with `"jsonrpc":"2.0"` on wire)
+- Content-Length framing (NOT JSONL -- LSP-style framing)
+- Port in `stream` mode (raw bytes, not line-delimited)
+- Server-initiated requests: `tool.call`, `permission.request`,
+  `hooks.invoke`, `user_input.request`
+- Session created via `session.create` RPC
+- Query via `session.send` + `session.event` notifications
+- `session.idle` event signals query completion
+
+Implements `agent_wire_behaviour` for unified consumer API.
+""".
 
 -behaviour(gen_statem).
 -behaviour(agent_wire_behaviour).
@@ -142,29 +145,29 @@
 %% agent_wire_behaviour API
 %%====================================================================
 
-%% @doc Start the Copilot session gen_statem.
+-doc "Start the Copilot session gen_statem.".
 -spec start_link(agent_wire:session_opts()) -> {ok, pid()} | {error, term()}.
 start_link(Opts) when is_map(Opts) ->
     gen_statem:start_link(?MODULE, Opts, []).
 
-%% @doc Send a query to the session. Returns a reference for receive_message/3.
+-doc "Send a query to the session. Returns a reference for `receive_message/3`.".
 -spec send_query(pid(), binary(), map(), timeout()) ->
     {ok, reference()} | {error, term()}.
 send_query(Pid, Prompt, Params, Timeout) ->
     gen_statem:call(Pid, {send_query, Prompt, Params}, Timeout).
 
-%% @doc Pull the next message from the session's message queue.
+-doc "Pull the next message from the session's message queue.".
 -spec receive_message(pid(), reference(), timeout()) ->
     {ok, agent_wire:message()} | {error, term()}.
 receive_message(Pid, Ref, Timeout) ->
     gen_statem:call(Pid, {receive_message, Ref}, Timeout).
 
-%% @doc Get the current health state.
+-doc "Get the current health state.".
 -spec health(pid()) -> atom().
 health(Pid) ->
     gen_statem:call(Pid, health, 5000).
 
-%% @doc Stop the session.
+-doc "Stop the session.".
 -spec stop(pid()) -> ok.
 stop(Pid) ->
     gen_statem:stop(Pid, normal, 10000).
@@ -173,22 +176,22 @@ stop(Pid) ->
 %% Optional Behaviour Callbacks
 %%====================================================================
 
-%% @doc Send an arbitrary JSON-RPC request to the Copilot CLI.
+-doc "Send an arbitrary JSON-RPC request to the Copilot CLI.".
 -spec send_control(pid(), binary(), map()) -> {ok, term()} | {error, term()}.
 send_control(Pid, Method, Params) ->
     gen_statem:call(Pid, {send_control, Method, Params}, 30000).
 
-%% @doc Abort the current query (sends session.abort).
+-doc "Abort the current query (sends `session.abort`).".
 -spec interrupt(pid()) -> ok | {error, term()}.
 interrupt(Pid) ->
     gen_statem:call(Pid, interrupt, 10000).
 
-%% @doc Get session info.
+-doc "Get session info.".
 -spec session_info(pid()) -> {ok, map()} | {error, term()}.
 session_info(Pid) ->
     gen_statem:call(Pid, session_info, 10000).
 
-%% @doc Change the model for this session.
+-doc "Change the model for this session.".
 -spec set_model(pid(), binary()) -> {ok, term()} | {error, term()}.
 set_model(Pid, Model) ->
     gen_statem:call(Pid, {set_model, Model}, 10000).
@@ -664,7 +667,7 @@ error(info, {'EXIT', _, _}, _Data) ->
 %% Internal: Port Management
 %%====================================================================
 
-%% @private Open the Copilot CLI port.
+%% Open the Copilot CLI port.
 -spec open_copilot_port(#data{}) -> {ok, port()} | {error, term()}.
 open_copilot_port(Data) ->
     CliPath = Data#data.cli_path,
@@ -681,7 +684,7 @@ open_copilot_port(Data) ->
         error:Reason -> {error, {open_port_failed, Reason}}
     end.
 
-%% @private Build port options.
+%% Build port options.
 -spec build_port_opts(map()) -> list().
 build_port_opts(Opts) ->
     Base = [binary, stream, use_stdio, exit_status, hide],
@@ -693,7 +696,7 @@ build_port_opts(Opts) ->
         Dir when is_list(Dir) -> [{cd, Dir} | Base]
     end.
 
-%% @private Resolve CLI path from options.
+%% Resolve CLI path from options.
 -spec resolve_cli_path(map()) -> string().
 resolve_cli_path(Opts) ->
     case maps:get(cli_path, Opts, undefined) of
@@ -706,17 +709,17 @@ resolve_cli_path(Opts) ->
 %% Internal: Buffer Processing
 %%====================================================================
 
-%% @private Process the buffer, extracting all complete messages.
-%%          Dispatches JSON-RPC responses to pending requests.
-%%          Returns {EventMessages, RemainingBuffer, UpdatedData}.
+%% Process the buffer, extracting all complete messages.
+%% Dispatches JSON-RPC responses to pending requests.
+%% Returns {EventMessages, RemainingBuffer, UpdatedData}.
 -spec process_buffer(binary(), #data{}) -> {[map()], binary(), #data{}}.
 process_buffer(Buffer, Data) ->
     {RawMsgs, RestBuf} = copilot_frame:extract_messages(Buffer),
     {Events, NewData} = dispatch_jsonrpc(RawMsgs, Data, []),
     {Events, RestBuf, NewData}.
 
-%% @private Dispatch JSON-RPC messages: route responses to pending,
-%%          handle server-initiated requests, collect notifications.
+%% Dispatch JSON-RPC messages: route responses to pending,
+%% handle server-initiated requests, collect notifications.
 -spec dispatch_jsonrpc([map()], #data{}, [map()]) -> {[map()], #data{}}.
 dispatch_jsonrpc([], Data, Acc) ->
     {lists:reverse(Acc), Data};
@@ -744,7 +747,7 @@ dispatch_jsonrpc([Msg | Rest], Data, Acc) ->
             dispatch_jsonrpc(Rest, Data, Acc)
     end.
 
-%% @private Handle a JSON-RPC response to one of our pending requests.
+%% Handle a JSON-RPC response to one of our pending requests.
 -spec handle_response(binary() | integer(), {ok, term()} | {error, term()}, #data{}) -> #data{}.
 handle_response(Id, Result, Data) ->
     BinId = ensure_binary_id(Id),
@@ -775,7 +778,7 @@ handle_response(Id, Result, Data) ->
 %% Internal: Server-Initiated Requests
 %%====================================================================
 
-%% @private Handle a request from the Copilot CLI server.
+%% Handle a request from the Copilot CLI server.
 %% Spec is intentionally broader than success typing — the permission.request
 %% handler enriches the event map with adapter-specific keys (permission_kind,
 %% raw) beyond agent_wire:message(), matching the normalize_message/1 pattern.
@@ -844,7 +847,7 @@ handle_server_request(ReqId, Method, _Params, Data) ->
     port_command(Data#data.port, copilot_frame:encode_message(Response)),
     Data.
 
-%% @private Call the permission handler and respond.
+%% Call the permission handler and respond.
 -spec call_permission_handler(binary() | integer(), map(), #data{}) -> #data{}.
 call_permission_handler(ReqId, Request, Data) ->
     Result = case Data#data.permission_handler of
@@ -867,7 +870,7 @@ call_permission_handler(ReqId, Request, Data) ->
     port_command(Data#data.port, copilot_frame:encode_message(Response)),
     Data.
 
-%% @private Call the hook handler and respond.
+%% Call the hook handler and respond.
 -spec call_hook_handler(binary() | integer(), binary(), map(), #data{}) -> #data{}.
 call_hook_handler(ReqId, HookType, Input, Data) ->
     Result = case Data#data.sdk_hook_registry of
@@ -901,7 +904,7 @@ call_hook_handler(ReqId, HookType, Input, Data) ->
     port_command(Data#data.port, copilot_frame:encode_message(Response)),
     Data.
 
-%% @private Call the user input handler and respond.
+%% Call the user input handler and respond.
 -spec call_user_input_handler(binary() | integer(), map(), #data{}) -> #data{}.
 call_user_input_handler(ReqId, Params, Data) ->
     case Data#data.user_input_handler of
@@ -943,9 +946,9 @@ call_user_input_handler(ReqId, Params, Data) ->
 %% Internal: Message Handling Per State
 %%====================================================================
 
-%% @private Handle messages during connecting state.
-%%          The ping response is handled internally by dispatch_jsonrpc
-%%          (removes from pending). We just check if pending is empty.
+%% Handle messages during connecting state.
+%% The ping response is handled internally by dispatch_jsonrpc
+%% (removes from pending). We just check if pending is empty.
 -spec handle_connecting_messages([map()], #data{}) ->
     {ping_ok, #data{}} | {wait, #data{}}.
 handle_connecting_messages(_Events, Data) ->
@@ -954,14 +957,14 @@ handle_connecting_messages(_Events, Data) ->
         _ -> {wait, Data}
     end.
 
-%% @private Handle messages during initializing state.
-%%          We're waiting for the session.create response.
+%% Handle messages during initializing state.
+%% We're waiting for the session.create response.
 -spec handle_init_messages([map()], #data{}) ->
     {session_created, binary(), #data{}} | {wait, #data{}}.
 handle_init_messages([], Data) ->
     %% Check if session.create response was received (pending cleared by dispatch_jsonrpc)
     %% Actually, we need to capture the session ID from the response.
-    %% The response is handled in dispatch_jsonrpc → handle_response,
+    %% The response is handled in dispatch_jsonrpc -> handle_response,
     %% but for 'internal' requests we don't have it yet.
     %% Let's check if copilot_session_id was set.
     case Data#data.copilot_session_id of
@@ -971,7 +974,7 @@ handle_init_messages([], Data) ->
 handle_init_messages([_Event | Rest], Data) ->
     handle_init_messages(Rest, Data).
 
-%% @private Handle messages in ready state (background notifications).
+%% Handle messages in ready state (background notifications).
 -spec handle_ready_messages([map()], #data{}) -> #data{}.
 handle_ready_messages([], Data) -> Data;
 handle_ready_messages([Event | Rest], Data) ->
@@ -979,17 +982,17 @@ handle_ready_messages([Event | Rest], Data) ->
     _Msg = copilot_protocol:normalize_event(Event),
     handle_ready_messages(Rest, Data).
 
-%% @private Handle messages in active_query state.
-%%          Normalize events and deliver to consumer.
+%% Handle messages in active_query state.
+%% Normalize events and deliver to consumer.
 %%
-%%          For result events (session.idle): if a consumer is parked
-%%          (waiting), deliver directly and signal transition to ready.
-%%          If no consumer (all messages arrived before consumer pulled),
-%%          enqueue the result and stay in active_query — the consumer
-%%          will pull it via receive_message, which then triggers the
-%%          transition. This prevents the race where fast mocks deliver
-%%          all messages in a single port chunk before the consumer calls
-%%          receive_message.
+%% For result events (session.idle): if a consumer is parked
+%% (waiting), deliver directly and signal transition to ready.
+%% If no consumer (all messages arrived before consumer pulled),
+%% enqueue the result and stay in active_query — the consumer
+%% will pull it via receive_message, which then triggers the
+%% transition. This prevents the race where fast mocks deliver
+%% all messages in a single port chunk before the consumer calls
+%% receive_message.
 -spec handle_active_messages([map()], #data{}) -> #data{}.
 handle_active_messages([], Data) -> Data;
 handle_active_messages([Event | Rest], Data) ->
@@ -1029,13 +1032,13 @@ handle_active_messages([Event | Rest], Data) ->
 %% Internal: Consumer Demand
 %%====================================================================
 
-%% @private Check if a message is terminal (signals query completion).
+%% Check if a message is terminal (signals query completion).
 -spec is_terminal_message(agent_wire:message()) -> boolean().
 is_terminal_message(#{type := result}) -> true;
 is_terminal_message(#{type := error, is_error := true}) -> true;
 is_terminal_message(_) -> false.
 
-%% @private Deliver a message to the waiting consumer, or enqueue it.
+%% Deliver a message to the waiting consumer, or enqueue it.
 -spec deliver_or_enqueue(agent_wire:message(), #data{}) -> #data{}.
 deliver_or_enqueue(Msg, #data{consumer = undefined, msg_queue = Queue} = Data)
   when Queue =/= undefined ->
@@ -1052,7 +1055,7 @@ deliver_or_enqueue(_Msg, Data) ->
 %% Internal: Hook Firing
 %%====================================================================
 
-%% @private Fire an SDK hook. Returns ok, {deny, Reason}, or hook result.
+%% Fire an SDK hook. Returns ok, {deny, Reason}, or hook result.
 -spec fire_hook(atom(), map(), #data{}) -> ok | {deny, binary()} | term().
 fire_hook(Event, Context, #data{sdk_hook_registry = undefined}) ->
     _ = Event,
@@ -1065,29 +1068,29 @@ fire_hook(Event, Context, #data{sdk_hook_registry = Registry}) ->
 %% Internal: Utilities
 %%====================================================================
 
-%% @private Generate the next request ID (binary UUID-style).
+%% Generate the next request ID (binary UUID-style).
 -spec make_request_id(#data{}) -> binary().
 make_request_id(#data{next_id = N}) ->
     integer_to_binary(N).
 
-%% @private Ensure ID is binary for map key consistency.
+%% Ensure ID is binary for map key consistency.
 -spec ensure_binary_id(binary() | integer()) -> binary().
 ensure_binary_id(Id) when is_binary(Id) -> Id;
 ensure_binary_id(Id) when is_integer(Id) -> integer_to_binary(Id).
 
-%% @private Safely close a port.
+%% Safely close a port.
 -spec close_port(port() | undefined) -> ok.
 close_port(undefined) -> ok;
 close_port(Port) ->
     try port_close(Port) catch error:_ -> ok end,
     ok.
 
-%% @private Cancel a timer reference.
+%% Cancel a timer reference.
 -spec cancel_timer(reference() | undefined) -> ok.
 cancel_timer(undefined) -> ok;
 cancel_timer(TRef) -> _ = erlang:cancel_timer(TRef), ok.
 
-%% @private Build session info map.
+%% Build session info map.
 -spec build_session_info(#data{}) -> map().
 build_session_info(Data) ->
     Base = #{
@@ -1101,12 +1104,12 @@ build_session_info(Data) ->
         SId -> Base#{copilot_session_id => SId}
     end.
 
-%% @private Build MCP registry from sdk_mcp_servers option.
+%% Build MCP registry from sdk_mcp_servers option.
 -spec build_mcp_registry(map()) -> agent_wire_mcp:mcp_registry() | undefined.
 build_mcp_registry(Opts) ->
     agent_wire_mcp:build_registry(maps:get(sdk_mcp_servers, Opts, undefined)).
 
-%% @private Format an MCP content result for Copilot wire protocol.
+%% Format an MCP content result for Copilot wire protocol.
 -spec format_mcp_content(agent_wire_mcp:content_result()) -> map().
 format_mcp_content(#{type := text, text := Text}) ->
     #{<<"type">> => <<"text">>, <<"text">> => Text};

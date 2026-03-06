@@ -24,15 +24,21 @@ jobs:
         with:
           otp-version: '28'
           elixir-version: '1.19'
+          rebar3-version: '3'
 
       - name: Install hex and rebar
         run: |
           mix local.hex --force
           mix local.rebar --force
 
-      - name: Build ExDoc for all wrappers
+      - name: Build Erlang docs
         run: |
-          mkdir -p _site
+          mkdir -p _site/erlang
+          rebar3 ex_doc
+          cp -r doc/* _site/erlang/
+
+      - name: Build Elixir docs
+        run: |
           for wrapper in agent_wire_ex claude_ex codex_ex copilot_ex gemini_ex opencode_ex; do
             echo "::group::$wrapper"
             (cd wrappers/$wrapper && mix deps.get && mix docs)
@@ -40,61 +46,8 @@ jobs:
             echo "::endgroup::"
           done
 
-      - name: Create index page
-        run: |
-          cat > _site/index.html <<'HEREDOC'
-          <!DOCTYPE html>
-          <html lang="en">
-          <head>
-            <meta charset="utf-8">
-            <title>BEAM Agent SDKs</title>
-            <style>
-              body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; max-width: 720px; margin: 4rem auto; padding: 0 1rem; color: #1a1a2e; }
-              h1 { border-bottom: 2px solid #6b46c1; padding-bottom: 0.5rem; }
-              h2 { color: #6b46c1; margin-top: 2rem; }
-              ul { list-style: none; padding: 0; }
-              li { margin: 0.75rem 0; }
-              a { color: #6b46c1; text-decoration: none; font-size: 1.1rem; font-weight: 500; }
-              a:hover { text-decoration: underline; }
-              .desc { color: #666; font-size: 0.9rem; display: block; margin-top: 0.15rem; }
-            </style>
-          </head>
-          <body>
-            <h1>BEAM Agent SDKs</h1>
-            <p>Erlang/OTP and Elixir libraries for AI coding agent wire protocols.</p>
-            <h2>Foundation</h2>
-            <ul>
-              <li>
-                <a href="agent_wire_ex/">AgentWire</a>
-                <span class="desc">Shared types, JSONL parsing, hooks, MCP servers, telemetry, and transport behaviour</span>
-              </li>
-            </ul>
-            <h2>Adapter SDKs</h2>
-            <ul>
-              <li>
-                <a href="claude_ex/">ClaudeEx</a>
-                <span class="desc">Claude Code agent SDK</span>
-              </li>
-              <li>
-                <a href="codex_ex/">CodexEx</a>
-                <span class="desc">OpenAI Codex agent SDK</span>
-              </li>
-              <li>
-                <a href="copilot_ex/">CopilotEx</a>
-                <span class="desc">GitHub Copilot agent SDK</span>
-              </li>
-              <li>
-                <a href="gemini_ex/">GeminiEx</a>
-                <span class="desc">Google Gemini CLI agent SDK</span>
-              </li>
-              <li>
-                <a href="opencode_ex/">OpencodeEx</a>
-                <span class="desc">OpenCode agent SDK</span>
-              </li>
-            </ul>
-          </body>
-          </html>
-          HEREDOC
+      - name: Install landing page
+        run: cp .github/pages/index.html _site/index.html
 
       - uses: actions/upload-pages-artifact@v3
         with:

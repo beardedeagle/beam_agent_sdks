@@ -1,30 +1,33 @@
-%%%-------------------------------------------------------------------
-%%% @doc OpenCode HTTP+SSE adapter — gen_statem.
-%%%
-%%% Primary adapter for the OpenCode HTTP REST + SSE API. Uses `gun`
-%%% for persistent HTTP/1.1 connections. Maintains one long-lived SSE
-%%% stream for server-push events alongside discrete REST calls for
-%%% queries, session management, and permission replies.
-%%%
-%%% State machine:
-%%%   connecting -> initializing -> ready -> active_query -> ready -> ...
-%%%                                           |
-%%%                                           +-> error -> (terminate)
-%%%
-%%% Key design decisions:
-%%%   - SSE stream is opened immediately on connect (gun_up) and kept
-%%%     alive for the full session lifetime.
-%%%   - REST requests are tracked in rest_pending map keyed by gun
-%%%     StreamRef, so multiple concurrent REST calls are possible.
-%%%   - Permission handling is FAIL-CLOSED: deny by default, deny on
-%%%     handler crash.
-%%%   - `session.idle` SSE event signals query completion (no drain
-%%%     phase needed, unlike port-based adapters).
-%%%
-%%% Implements agent_wire_behaviour for unified consumer API.
-%%% @end
-%%%-------------------------------------------------------------------
 -module(opencode_session).
+
+-moduledoc """
+OpenCode HTTP+SSE adapter -- gen_statem.
+
+Primary adapter for the OpenCode HTTP REST + SSE API. Uses `gun`
+for persistent HTTP/1.1 connections. Maintains one long-lived SSE
+stream for server-push events alongside discrete REST calls for
+queries, session management, and permission replies.
+
+State machine:
+
+```
+connecting -> initializing -> ready -> active_query -> ready -> ...
+                                        |
+                                        +-> error -> (terminate)
+```
+
+Key design decisions:
+- SSE stream is opened immediately on connect (`gun_up`) and kept
+  alive for the full session lifetime.
+- REST requests are tracked in `rest_pending` map keyed by gun
+  StreamRef, so multiple concurrent REST calls are possible.
+- Permission handling is FAIL-CLOSED: deny by default, deny on
+  handler crash.
+- `session.idle` SSE event signals query completion (no drain
+  phase needed, unlike port-based adapters).
+
+Implements `agent_wire_behaviour` for unified consumer API.
+""".
 
 -behaviour(gen_statem).
 -behaviour(agent_wire_behaviour).
@@ -156,44 +159,54 @@
 %% agent_wire_behaviour API
 %%====================================================================
 
+-doc "Start an OpenCode HTTP+SSE session as a linked gen_statem.".
 -spec start_link(agent_wire:session_opts()) -> {ok, pid()} | {error, term()}.
 start_link(Opts) ->
     gen_statem:start_link(?MODULE, Opts, []).
 
+-doc "Send a query prompt and return a message reference for collecting responses.".
 -spec send_query(pid(), binary(), agent_wire:query_opts(), timeout()) ->
     {ok, reference()} | {error, term()}.
 send_query(Pid, Prompt, Params, Timeout) ->
     gen_statem:call(Pid, {send_query, Prompt, Params}, Timeout).
 
+-doc "Receive the next message for the given query reference.".
 -spec receive_message(pid(), reference(), timeout()) ->
     {ok, agent_wire:message()} | {error, term()}.
 receive_message(Pid, Ref, Timeout) ->
     gen_statem:call(Pid, {receive_message, Ref}, Timeout).
 
+-doc "Return the current health state of the session.".
 -spec health(pid()) -> ready | connecting | initializing | active_query | error.
 health(Pid) ->
     gen_statem:call(Pid, health, 5000).
 
+-doc "Stop the session process.".
 -spec stop(pid()) -> ok.
 stop(Pid) ->
     gen_statem:stop(Pid, normal, 10000).
 
+-doc "Send a control message. Not supported natively; use universal control.".
 -spec send_control(pid(), binary(), map()) -> {error, not_supported}.
 send_control(_Pid, _Method, _Params) ->
     {error, not_supported}.
 
+-doc "Interrupt the current query by aborting it.".
 -spec interrupt(pid()) -> ok | {error, term()}.
 interrupt(Pid) ->
     gen_statem:call(Pid, abort, 10000).
 
+-doc "Return session metadata (session id, directory, model, transport).".
 -spec session_info(pid()) -> {ok, map()} | {error, term()}.
 session_info(Pid) ->
     gen_statem:call(Pid, session_info, 5000).
 
+-doc "Change the model at runtime.".
 -spec set_model(pid(), binary()) -> {ok, term()} | {error, term()}.
 set_model(Pid, Model) ->
     gen_statem:call(Pid, {set_model, Model}, 5000).
 
+-doc "Set permission mode. Not supported natively; use universal control.".
 -spec set_permission_mode(pid(), binary()) -> {ok, term()} | {error, term()}.
 set_permission_mode(_Pid, _Mode) ->
     {error, not_supported}.
@@ -984,9 +997,9 @@ build_session_info(Data) ->
 %% Internal: SSE buffer safety
 %%====================================================================
 
-%% @doc Parse SSE data with buffer overflow protection.
-%%      Returns `{ok, Events, NewSseState}` on success, or
-%%      `{error, buffer_overflow}` if the SSE buffer exceeds buffer_max.
+%% Parse SSE data with buffer overflow protection.
+%% Returns `{ok, Events, NewSseState}` on success, or
+%% `{error, buffer_overflow}` if the SSE buffer exceeds buffer_max.
 -spec safe_parse_sse(binary(), #data{}) ->
     {ok, [opencode_sse:sse_event()], opencode_sse:parse_state()} |
     {error, buffer_overflow}.
@@ -1018,9 +1031,9 @@ close_gun(ConnPid) ->
 %% Internal: Registry building
 %%====================================================================
 
-%% @doc Build an MCP registry from the sdk_mcp_servers option.
-%%      Stored for API parity. OpenCode (HTTP/SSE) does not currently
-%%      support in-process tool dispatch — no callback protocol from server.
+%% Build an MCP registry from the sdk_mcp_servers option.
+%% Stored for API parity. OpenCode (HTTP/SSE) does not currently
+%% support in-process tool dispatch — no callback protocol from server.
 -spec build_mcp_registry(map()) -> agent_wire_mcp:mcp_registry() | undefined.
 build_mcp_registry(Opts) ->
     agent_wire_mcp:build_registry(maps:get(sdk_mcp_servers, Opts, undefined)).
@@ -1042,4 +1055,3 @@ maybe_span_stop(#data{query_start_time = StartTime}) ->
 maybe_span_exception(#data{query_start_time = undefined}, _Reason) -> ok;
 maybe_span_exception(#data{query_start_time = _StartTime}, Reason) ->
     agent_wire_telemetry:span_exception(opencode, query, Reason).
-

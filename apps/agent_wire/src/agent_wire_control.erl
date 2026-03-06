@@ -1,38 +1,37 @@
-%%%-------------------------------------------------------------------
-%%% @doc Universal session control protocol for the BEAM Agent SDK.
-%%%
-%%% Provides session-scoped configuration state, task tracking,
-%%% feedback management, and turn response handling. Implements a
-%%% virtual control protocol for adapters without native control
-%%% message support.
-%%%
-%%% Uses ETS for per-session state. All state is keyed by session_id
-%%% and persists for the node lifetime or until explicitly cleared.
-%%%
-%%% Usage:
-%%% ```
-%%% %% Set session config:
-%%% agent_wire_control:set_permission_mode(SessionId, <<"acceptEdits">>),
-%%% agent_wire_control:set_max_thinking_tokens(SessionId, 8192),
-%%%
-%%% %% Dispatch a control method:
-%%% {ok, _} = agent_wire_control:dispatch(SessionId, <<"setModel">>,
-%%%     #{<<"model">> => <<"claude-sonnet-4-6">>}),
-%%%
-%%% %% Track tasks:
-%%% agent_wire_control:register_task(SessionId, TaskId, Pid),
-%%% agent_wire_control:stop_task(SessionId, TaskId),
-%%%
-%%% %% Submit feedback:
-%%% agent_wire_control:submit_feedback(SessionId, #{rating => good}),
-%%%
-%%% %% Turn response:
-%%% agent_wire_control:store_pending_request(SessionId, ReqId, Request),
-%%% agent_wire_control:resolve_pending_request(SessionId, ReqId, Response)
-%%% ```
-%%% @end
-%%%-------------------------------------------------------------------
 -module(agent_wire_control).
+-moduledoc """
+Universal session control protocol for the BEAM Agent SDK.
+
+Provides session-scoped configuration state, task tracking,
+feedback management, and turn response handling. Implements a
+virtual control protocol for adapters without native control
+message support.
+
+Uses ETS for per-session state. All state is keyed by session_id
+and persists for the node lifetime or until explicitly cleared.
+
+Usage:
+```erlang
+%% Set session config:
+agent_wire_control:set_permission_mode(SessionId, <<"acceptEdits">>),
+agent_wire_control:set_max_thinking_tokens(SessionId, 8192),
+
+%% Dispatch a control method:
+{ok, _} = agent_wire_control:dispatch(SessionId, <<"setModel">>,
+    #{<<"model">> => <<"claude-sonnet-4-6">>}),
+
+%% Track tasks:
+agent_wire_control:register_task(SessionId, TaskId, Pid),
+agent_wire_control:stop_task(SessionId, TaskId),
+
+%% Submit feedback:
+agent_wire_control:submit_feedback(SessionId, #{rating => good}),
+
+%% Turn response:
+agent_wire_control:store_pending_request(SessionId, ReqId, Request),
+agent_wire_control:resolve_pending_request(SessionId, ReqId, Response)
+```
+""".
 
 -export([
     %% Table lifecycle
@@ -101,7 +100,7 @@
 %% Table Lifecycle
 %%--------------------------------------------------------------------
 
-%% @doc Ensure all control ETS tables exist. Idempotent.
+-doc "Ensure all control ETS tables exist. Idempotent.".
 -spec ensure_tables() -> ok.
 ensure_tables() ->
     ensure_ets(?CONFIG_TABLE, [set, public, named_table,
@@ -111,7 +110,7 @@ ensure_tables() ->
     ensure_ets(?PENDING_TABLE, [set, public, named_table]),
     ok.
 
-%% @doc Clear all control state.
+-doc "Clear all control state.".
 -spec clear() -> ok.
 clear() ->
     ensure_tables(),
@@ -125,8 +124,10 @@ clear() ->
 %% Control Dispatch
 %%--------------------------------------------------------------------
 
-%% @doc Dispatch a control method to the appropriate handler.
-%%      Known methods are handled internally; unknown methods return error.
+-doc """
+Dispatch a control method to the appropriate handler.
+Known methods are handled internally; unknown methods return error.
+""".
 -spec dispatch(binary(), binary(), map()) ->
     {ok, term()} | {error, term()}.
 dispatch(SessionId, Method, Params)
@@ -171,7 +172,7 @@ dispatch(SessionId, Method, Params)
 %% Session Config
 %%--------------------------------------------------------------------
 
-%% @doc Get a config value for a session.
+-doc "Get a config value for a session.".
 -spec get_config(binary(), atom()) -> {ok, term()} | {error, not_set}.
 get_config(SessionId, Key)
   when is_binary(SessionId), is_atom(Key) ->
@@ -181,7 +182,7 @@ get_config(SessionId, Key)
         [] -> {error, not_set}
     end.
 
-%% @doc Set a config value for a session.
+-doc "Set a config value for a session.".
 -spec set_config(binary(), atom(), term()) -> ok.
 set_config(SessionId, Key, Value)
   when is_binary(SessionId), is_atom(Key) ->
@@ -189,7 +190,7 @@ set_config(SessionId, Key, Value)
     ets:insert(?CONFIG_TABLE, {{SessionId, Key}, Value}),
     ok.
 
-%% @doc Get all config for a session as a map.
+-doc "Get all config for a session as a map.".
 -spec get_all_config(binary()) -> {ok, map()}.
 get_all_config(SessionId) when is_binary(SessionId) ->
     ensure_tables(),
@@ -201,7 +202,7 @@ get_all_config(SessionId) when is_binary(SessionId) ->
     end, #{}, ?CONFIG_TABLE),
     {ok, Config}.
 
-%% @doc Clear all config for a session.
+-doc "Clear all config for a session.".
 -spec clear_config(binary()) -> ok.
 clear_config(SessionId) when is_binary(SessionId) ->
     ensure_tables(),
@@ -219,12 +220,12 @@ clear_config(SessionId) when is_binary(SessionId) ->
 %% Permission Mode
 %%--------------------------------------------------------------------
 
-%% @doc Set the permission mode for a session.
+-doc "Set the permission mode for a session.".
 -spec set_permission_mode(binary(), binary() | atom()) -> ok.
 set_permission_mode(SessionId, Mode) when is_binary(SessionId) ->
     set_config(SessionId, permission_mode, Mode).
 
-%% @doc Get the permission mode for a session.
+-doc "Get the permission mode for a session.".
 -spec get_permission_mode(binary()) ->
     {ok, binary() | atom()} | {error, not_set}.
 get_permission_mode(SessionId) when is_binary(SessionId) ->
@@ -234,13 +235,13 @@ get_permission_mode(SessionId) when is_binary(SessionId) ->
 %% Thinking Tokens
 %%--------------------------------------------------------------------
 
-%% @doc Set max thinking tokens for a session.
+-doc "Set max thinking tokens for a session.".
 -spec set_max_thinking_tokens(binary(), pos_integer()) -> ok.
 set_max_thinking_tokens(SessionId, Tokens)
   when is_binary(SessionId), is_integer(Tokens), Tokens > 0 ->
     set_config(SessionId, max_thinking_tokens, Tokens).
 
-%% @doc Get max thinking tokens for a session.
+-doc "Get max thinking tokens for a session.".
 -spec get_max_thinking_tokens(binary()) ->
     {ok, pos_integer()} | {error, not_set}.
 get_max_thinking_tokens(SessionId) when is_binary(SessionId) ->
@@ -250,7 +251,7 @@ get_max_thinking_tokens(SessionId) when is_binary(SessionId) ->
 %% Task Tracking
 %%--------------------------------------------------------------------
 
-%% @doc Register an active task for a session.
+-doc "Register an active task for a session.".
 -spec register_task(binary(), binary(), pid()) -> ok.
 register_task(SessionId, TaskId, Pid)
   when is_binary(SessionId), is_binary(TaskId), is_pid(Pid) ->
@@ -266,7 +267,7 @@ register_task(SessionId, TaskId, Pid)
     ets:insert(?TASKS_TABLE, {{SessionId, TaskId}, Task}),
     ok.
 
-%% @doc Unregister a task (mark as complete).
+-doc "Unregister a task (mark as complete).".
 -spec unregister_task(binary(), binary()) -> ok.
 unregister_task(SessionId, TaskId)
   when is_binary(SessionId), is_binary(TaskId) ->
@@ -274,8 +275,10 @@ unregister_task(SessionId, TaskId)
     ets:delete(?TASKS_TABLE, {SessionId, TaskId}),
     ok.
 
-%% @doc Stop a running task by sending an interrupt to its process.
-%%      Returns ok if the task was found and signaled, error otherwise.
+-doc """
+Stop a running task by sending an interrupt to its process.
+Returns `ok` if the task was found and signaled, error otherwise.
+""".
 -spec stop_task(binary(), binary()) -> ok | {error, not_found}.
 stop_task(SessionId, TaskId)
   when is_binary(SessionId), is_binary(TaskId) ->
@@ -305,7 +308,7 @@ stop_task(SessionId, TaskId)
             {error, not_found}
     end.
 
-%% @doc List all tasks for a session.
+-doc "List all tasks for a session.".
 -spec list_tasks(binary()) -> {ok, [task_meta()]}.
 list_tasks(SessionId) when is_binary(SessionId) ->
     ensure_tables(),
@@ -321,7 +324,7 @@ list_tasks(SessionId) when is_binary(SessionId) ->
 %% Feedback
 %%--------------------------------------------------------------------
 
-%% @doc Submit feedback for a session. Feedback is accumulated.
+-doc "Submit feedback for a session. Feedback is accumulated.".
 -spec submit_feedback(binary(), map()) -> ok.
 submit_feedback(SessionId, Feedback)
   when is_binary(SessionId), is_map(Feedback) ->
@@ -337,7 +340,7 @@ submit_feedback(SessionId, Feedback)
     ets:insert(?FEEDBACK_TABLE, {{SessionId, Seq}, Entry}),
     ok.
 
-%% @doc Get all feedback for a session, in submission order.
+-doc "Get all feedback for a session, in submission order.".
 -spec get_feedback(binary()) -> {ok, [map()]}.
 get_feedback(SessionId) when is_binary(SessionId) ->
     ensure_tables(),
@@ -352,7 +355,7 @@ get_feedback(SessionId) when is_binary(SessionId) ->
     end, Feedback),
     {ok, Sorted}.
 
-%% @doc Clear all feedback for a session.
+-doc "Clear all feedback for a session.".
 -spec clear_feedback(binary()) -> ok.
 clear_feedback(SessionId) when is_binary(SessionId) ->
     ensure_tables(),
@@ -369,8 +372,10 @@ clear_feedback(SessionId) when is_binary(SessionId) ->
 %% Turn Response (Pending Request/Response)
 %%--------------------------------------------------------------------
 
-%% @doc Store a pending request from the agent.
-%%      Called when the agent asks for user input.
+-doc """
+Store a pending request from the agent.
+Called when the agent asks for user input.
+""".
 -spec store_pending_request(binary(), binary(), map()) -> ok.
 store_pending_request(SessionId, RequestId, Request)
   when is_binary(SessionId), is_binary(RequestId), is_map(Request) ->
@@ -386,7 +391,7 @@ store_pending_request(SessionId, RequestId, Request)
     ets:insert(?PENDING_TABLE, {{SessionId, RequestId}, Entry}),
     ok.
 
-%% @doc Resolve a pending request with a response.
+-doc "Resolve a pending request with a response.".
 -spec resolve_pending_request(binary(), binary(), map()) ->
     ok | {error, not_found | already_resolved}.
 resolve_pending_request(SessionId, RequestId, Response)
@@ -409,7 +414,7 @@ resolve_pending_request(SessionId, RequestId, Response)
             {error, not_found}
     end.
 
-%% @doc Get the response for a pending request.
+-doc "Get the response for a pending request.".
 -spec get_pending_response(binary(), binary()) ->
     {ok, map()} | {error, pending | not_found}.
 get_pending_response(SessionId, RequestId)
@@ -425,7 +430,7 @@ get_pending_response(SessionId, RequestId)
             {error, not_found}
     end.
 
-%% @doc List all pending requests for a session.
+-doc "List all pending requests for a session.".
 -spec list_pending_requests(binary()) -> {ok, [pending_request()]}.
 list_pending_requests(SessionId) when is_binary(SessionId) ->
     ensure_tables(),

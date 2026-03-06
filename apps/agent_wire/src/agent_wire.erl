@@ -1,19 +1,18 @@
-%%%-------------------------------------------------------------------
-%%% @doc Common type definitions for the BEAM Agent SDK wire protocols.
-%%%
-%%% All four wire protocol adapters (Claude Code, Codex CLI, OpenCode,
-%%% Gemini CLI) normalize their messages into the types defined here.
-%%% This module is pure types and utility functions — no processes.
-%%%
-%%% Wire protocol cross-referenced against TypeScript Agent SDK v0.2.66
-%%% (npm @anthropic-ai/claude-agent-sdk) for protocol fidelity:
-%%%   - Result messages use `result` field (not `content`)
-%%%   - Every message carries `uuid` and `session_id`
-%%%   - All enrichment fields from the official SDK are extracted
-%%%   - Stop reasons validated to atoms for pattern matching
-%%% @end
-%%%-------------------------------------------------------------------
 -module(agent_wire).
+-moduledoc """
+Common type definitions for the BEAM Agent SDK wire protocols.
+
+All four wire protocol adapters (Claude Code, Codex CLI, OpenCode,
+Gemini CLI) normalize their messages into the types defined here.
+This module is pure types and utility functions — no processes.
+
+Wire protocol cross-referenced against TypeScript Agent SDK v0.2.66
+(npm @anthropic-ai/claude-agent-sdk) for protocol fidelity:
+  - Result messages use `result` field (not `content`)
+  - Every message carries `uuid` and `session_id`
+  - All enrichment fields from the official SDK are extracted
+  - Stop reasons validated to atoms for pattern matching
+""".
 
 -export([
     normalize_message/1,
@@ -307,12 +306,14 @@
 %% API
 %%--------------------------------------------------------------------
 
-%% @doc Normalize a raw decoded JSON map into an agent_wire:message().
-%%      Adapters call this after decoding their wire-format-specific
-%%      JSON to produce the common message type.
-%%
-%%      Extracts common fields (uuid, session_id) from every message,
-%%      then delegates to type-specific field extraction.
+-doc """
+Normalize a raw decoded JSON map into an `agent_wire:message()`.
+Adapters call this after decoding their wire-format-specific
+JSON to produce the common message type.
+
+Extracts common fields (uuid, session_id) from every message,
+then delegates to type-specific field extraction.
+""".
 %% Spec is intentionally broader than success typing — message() is the
 %% API contract for all five adapters, not just the branches here.
 -dialyzer({nowarn_function, normalize_message/1}).
@@ -325,17 +326,21 @@ normalize_message(#{<<"type">> := TypeBin} = Raw) ->
 normalize_message(Raw) when is_map(Raw) ->
     #{type => raw, raw => Raw, timestamp => erlang:system_time(millisecond)}.
 
-%% @doc Generate a unique request ID for control protocol correlation.
-%%      Format: req_COUNTER_HEX (e.g., req_0_a1b2c3d4) matching the
-%%      actual Claude Code CLI protocol.
+-doc """
+Generate a unique request ID for control protocol correlation.
+Format: `req_COUNTER_HEX` (e.g., `req_0_a1b2c3d4`) matching the
+actual Claude Code CLI protocol.
+""".
 -spec make_request_id() -> binary().
 make_request_id() ->
     Seq = erlang:unique_integer([positive, monotonic]),
     Hex = binary:encode_hex(rand:bytes(4), lowercase),
     iolist_to_binary(io_lib:format("req_~b_~s", [Seq, Hex])).
 
-%% @doc Parse a binary stop reason into a typed atom.
-%%      Unknown values map to `unknown_stop' for forward compatibility.
+-doc """
+Parse a binary stop reason into a typed atom.
+Unknown values map to `unknown_stop` for forward compatibility.
+""".
 -spec parse_stop_reason(binary() | term()) -> stop_reason().
 parse_stop_reason(<<"end_turn">>)      -> end_turn;
 parse_stop_reason(<<"max_tokens">>)    -> max_tokens;
@@ -344,8 +349,10 @@ parse_stop_reason(<<"refusal">>)       -> refusal;
 parse_stop_reason(<<"tool_use">>)      -> tool_use_stop;
 parse_stop_reason(_)                   -> unknown_stop.
 
-%% @doc Parse a binary permission mode into a typed atom.
-%%      Note: dont_ask is TypeScript-only (not available in Python SDK).
+-doc """
+Parse a binary permission mode into a typed atom.
+Note: `dont_ask` is TypeScript-only (not available in Python SDK).
+""".
 -spec parse_permission_mode(binary() | term()) -> permission_mode().
 parse_permission_mode(<<"default">>)           -> default;
 parse_permission_mode(<<"acceptEdits">>)       -> accept_edits;
@@ -358,9 +365,9 @@ parse_permission_mode(_)                       -> default.
 %% Internal: Common field extraction
 %%--------------------------------------------------------------------
 
-%% @doc Extract common fields (uuid, session_id) present on all messages
-%%      from the CLI. These are essential for message correlation,
-%%      session continuity, and file checkpointing.
+%% Extract common fields (uuid, session_id) present on all messages
+%% from the CLI. These are essential for message correlation,
+%% session continuity, and file checkpointing.
 -spec add_common_fields(map(), message()) -> message().
 add_common_fields(Raw, Base) ->
     M0 = maybe_add(<<"uuid">>, uuid, Raw, Base),
@@ -544,9 +551,9 @@ add_fields(_Type, Raw, Base) ->
 %% Internal: Result enrichment
 %%--------------------------------------------------------------------
 
-%% @doc Enrich a result message with all protocol fields from the
-%%      TS SDK v0.2.66 SDKResultSuccess/SDKResultError types.
-%%      Only includes fields actually present in the raw message.
+%% Enrich a result message with all protocol fields from the
+%% TS SDK v0.2.66 SDKResultSuccess/SDKResultError types.
+%% Only includes fields actually present in the raw message.
 -spec enrich_result(message(), map()) -> message().
 enrich_result(M0, Raw) ->
     Fields = [
@@ -583,9 +590,9 @@ enrich_result(M0, Raw) ->
 %% Internal: System init parsing
 %%--------------------------------------------------------------------
 
-%% @doc Parse a system init message into a structured map of session
-%%      capabilities. The TS SDK SDKSystemMessage (subtype: init) includes
-%%      tools, model, MCP servers, slash commands, skills, plugins, etc.
+%% Parse a system init message into a structured map of session
+%% capabilities. The TS SDK SDKSystemMessage (subtype: init) includes
+%% tools, model, MCP servers, slash commands, skills, plugins, etc.
 -spec parse_system_init(map()) -> map().
 parse_system_init(Raw) ->
     Fields = [
@@ -615,7 +622,7 @@ parse_system_init(Raw) ->
 %% Internal: Field helpers
 %%--------------------------------------------------------------------
 
-%% @doc Conditionally add a field to the message map if present in raw.
+%% Conditionally add a field to the message map if present in raw.
 -spec maybe_add(binary(), atom(), map(), message()) -> message().
 maybe_add(BinKey, AtomKey, Raw, Msg) ->
     case maps:find(BinKey, Raw) of
@@ -623,7 +630,7 @@ maybe_add(BinKey, AtomKey, Raw, Msg) ->
         error   -> Msg
     end.
 
-%% @doc Conditionally add a boolean field, treating JSON null as absent.
+%% Conditionally add a boolean field, treating JSON null as absent.
 -spec maybe_add_bool(binary(), atom(), map(), message()) -> message().
 maybe_add_bool(BinKey, AtomKey, Raw, Msg) ->
     case maps:find(BinKey, Raw) of
@@ -647,34 +654,38 @@ maybe_add_bool(BinKey, AtomKey, Raw, Msg) ->
 %% the result), `false' for messages that should continue collection.
 -type terminal_pred() :: fun((message()) -> boolean()).
 
-%% @doc Collect all messages from a session using the default terminal
-%%      predicate: `result' and `error' messages halt the loop.
-%%
-%%      `ReceiveFun' is the adapter-specific function that pulls the next
-%%      message (e.g. `gen_statem:call(Session, {receive_message, Ref}, T)').
-%%
-%%      Returns `{ok, Messages}' in order, or `{error, Reason}' on
-%%      timeout or transport failure.
-%%
-%% @see collect_messages/5
+-doc """
+Collect all messages from a session using the default terminal
+predicate: `result` and `error` messages halt the loop.
+
+`ReceiveFun` is the adapter-specific function that pulls the next
+message (e.g. `gen_statem:call(Session, {receive_message, Ref}, T)`).
+
+Returns `{ok, Messages}` in order, or `{error, Reason}` on
+timeout or transport failure.
+
+See also `collect_messages/5`.
+""".
 -spec collect_messages(pid(), reference(), integer(), receive_fun()) ->
     {ok, [message()]} | {error, term()}.
 collect_messages(Session, Ref, Deadline, ReceiveFun) ->
     collect_messages(Session, Ref, Deadline, ReceiveFun,
         fun default_terminal/1).
 
-%% @doc Collect all messages with a custom terminal predicate.
-%%
-%%      The predicate receives each message and returns `true' if
-%%      collection should stop (the message is included in the result).
-%%      This allows adapters like Copilot — where only `is_error: true'
-%%      errors are terminal — to customize halt behavior.
+-doc """
+Collect all messages with a custom terminal predicate.
+
+The predicate receives each message and returns `true` if
+collection should stop (the message is included in the result).
+This allows adapters like Copilot -- where only `is_error: true`
+errors are terminal -- to customize halt behavior.
+""".
 -spec collect_messages(pid(), reference(), integer(), receive_fun(),
     terminal_pred()) -> {ok, [message()]} | {error, term()}.
 collect_messages(Session, Ref, Deadline, ReceiveFun, IsTerminal) ->
     collect_loop(Session, Ref, Deadline, ReceiveFun, IsTerminal, []).
 
-%% @private
+%% Internal recursive collection loop.
 -spec collect_loop(pid(), reference(), integer(), receive_fun(),
     terminal_pred(), [message()]) -> {ok, [message()]} | {error, term()}.
 collect_loop(Session, Ref, Deadline, ReceiveFun, IsTerminal, Acc) ->
@@ -699,7 +710,7 @@ collect_loop(Session, Ref, Deadline, ReceiveFun, IsTerminal, Acc) ->
             end
     end.
 
-%% @doc Default terminal predicate: `result' and `error' messages halt.
+%% Default terminal predicate: `result` and `error` messages halt.
 -spec default_terminal(message()) -> boolean().
 default_terminal(#{type := result}) -> true;
 default_terminal(#{type := error}) -> true;

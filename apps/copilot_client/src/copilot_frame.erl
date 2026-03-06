@@ -1,17 +1,20 @@
-%%%-------------------------------------------------------------------
-%%% @doc Content-Length frame parser for the Copilot wire protocol.
-%%%
-%%% The Copilot CLI uses LSP-style Content-Length framing (NOT JSONL):
-%%%   Content-Length: <N>\r\n\r\n<N bytes of JSON>
-%%%
-%%% This module provides pure functions for extracting complete
-%%% messages from a byte buffer and encoding outgoing messages.
-%%% No processes — used by copilot_session for port I/O.
-%%%
-%%% Uses OTP 27+ `json' module — no external JSON dependency.
-%%% @end
-%%%-------------------------------------------------------------------
 -module(copilot_frame).
+
+-moduledoc """
+Content-Length frame parser for the Copilot wire protocol.
+
+The Copilot CLI uses LSP-style Content-Length framing (NOT JSONL):
+
+```
+Content-Length: <N>\r\n\r\n<N bytes of JSON>
+```
+
+This module provides pure functions for extracting complete
+messages from a byte buffer and encoding outgoing messages.
+No processes -- used by copilot_session for port I/O.
+
+Uses OTP 27+ `json` module -- no external JSON dependency.
+""".
 
 -export([
     extract_message/1,
@@ -36,12 +39,14 @@
 %% Extraction API
 %%====================================================================
 
-%% @doc Extract one complete Content-Length framed message from the buffer.
-%%
-%% Returns:
-%%   {ok, DecodedMap, RemainingBuffer} — complete message decoded
-%%   incomplete — not enough data yet (need more bytes)
-%%   {error, Reason} — parse error (bad header, invalid JSON)
+-doc """
+Extract one complete Content-Length framed message from the buffer.
+
+Returns:
+- `{ok, DecodedMap, RemainingBuffer}` -- complete message decoded
+- `incomplete` -- not enough data yet (need more bytes)
+- `{error, Reason}` -- parse error (bad header, invalid JSON)
+""".
 -spec extract_message(binary()) -> extract_result().
 extract_message(Buffer) when byte_size(Buffer) =:= 0 ->
     incomplete;
@@ -75,8 +80,10 @@ extract_message(Buffer) ->
             end
     end.
 
-%% @doc Extract all complete messages from the buffer (batch mode).
-%%      Returns a list of decoded maps and the remaining buffer.
+-doc """
+Extract all complete messages from the buffer (batch mode).
+Returns a list of decoded maps and the remaining buffer.
+""".
 -spec extract_messages(binary()) -> {[map()], binary()}.
 extract_messages(Buffer) ->
     extract_messages_acc(Buffer, []).
@@ -85,8 +92,10 @@ extract_messages(Buffer) ->
 %% Encoding API
 %%====================================================================
 
-%% @doc Encode a JSON map as a Content-Length framed message.
-%%      Returns iodata suitable for port_command/2.
+-doc """
+Encode a JSON map as a Content-Length framed message.
+Returns iodata suitable for `port_command/2`.
+""".
 -spec encode_message(map()) -> iodata().
 encode_message(Msg) when is_map(Msg) ->
     BodyBytes = iolist_to_binary(json:encode(Msg)),
@@ -98,7 +107,7 @@ encode_message(Msg) when is_map(Msg) ->
 %% Internal Functions
 %%====================================================================
 
-%% @private Find the \r\n\r\n boundary that separates header from body.
+%% Find the \r\n\r\n boundary that separates header from body.
 %% Returns {HeaderEndOffset, BodyStartOffset} or nomatch.
 -spec find_header_boundary(binary()) -> {non_neg_integer(), non_neg_integer()} | nomatch.
 find_header_boundary(Buffer) ->
@@ -107,7 +116,7 @@ find_header_boundary(Buffer) ->
         {Pos, 4} -> {Pos, Pos + 4}
     end.
 
-%% @private Parse Content-Length value from header section.
+%% Parse Content-Length value from header section.
 %% Handles case-insensitive header names per HTTP convention.
 -spec parse_content_length(binary()) -> {ok, non_neg_integer()} | {error, term()}.
 parse_content_length(Header) ->
@@ -140,7 +149,7 @@ parse_cl_lines([Line | Rest]) ->
             parse_cl_lines(Rest)
     end.
 
-%% @private Decode JSON body into a map.
+%% Decode JSON body into a map.
 -spec decode_body(binary(), binary()) -> extract_result().
 decode_body(Body, Rest) ->
     try json:decode(Body) of
@@ -153,7 +162,7 @@ decode_body(Body, Rest) ->
             {error, {json_decode, Reason}}
     end.
 
-%% @private Accumulator for extract_messages/1.
+%% Accumulator for extract_messages/1.
 -spec extract_messages_acc(binary(), [map()]) -> {[map()], binary()}.
 extract_messages_acc(Buffer, Acc) ->
     case extract_message(Buffer) of

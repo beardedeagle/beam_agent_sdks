@@ -1,24 +1,23 @@
-%%%-------------------------------------------------------------------
-%%% @doc Universal command execution for the BEAM Agent SDK.
-%%%
-%%% Provides shell command execution across all adapters via Erlang
-%%% ports. Any adapter can run commands regardless of whether the
-%%% underlying CLI supports it natively.
-%%%
-%%% Uses `erlang:open_port/2` with `spawn_executable` for safe,
-%%% timeout-aware, output-captured command execution.
-%%%
-%%% Usage:
-%%% ```
-%%% {ok, Result} = agent_wire_command:run(<<"ls -la">>),
-%%% #{exit_code := 0, output := Output} = Result.
-%%%
-%%% {ok, Result} = agent_wire_command:run(<<"pwd">>,
-%%%     #{cwd => <<"/tmp">>, timeout => 5000}).
-%%% ```
-%%% @end
-%%%-------------------------------------------------------------------
 -module(agent_wire_command).
+-moduledoc """
+Universal command execution for the BEAM Agent SDK.
+
+Provides shell command execution across all adapters via Erlang
+ports. Any adapter can run commands regardless of whether the
+underlying CLI supports it natively.
+
+Uses `erlang:open_port/2` with `spawn_executable` for safe,
+timeout-aware, output-captured command execution.
+
+Usage:
+```erlang
+{ok, Result} = agent_wire_command:run(<<"ls -la">>),
+#{exit_code := 0, output := Output} = Result.
+
+{ok, Result} = agent_wire_command:run(<<"pwd">>,
+    #{cwd => <<"/tmp">>, timeout => 5000}).
+```
+""".
 
 -export([
     run/1,
@@ -53,17 +52,20 @@
 %% Public API
 %%--------------------------------------------------------------------
 
-%% @doc Run a shell command with default options.
+-doc "Run a shell command with default options.".
 -spec run(binary() | string()) -> {ok, command_result()} | {error, term()}.
 run(Command) ->
     run(Command, #{}).
 
-%% @doc Run a shell command with options.
-%%      Options:
-%%        - timeout: max execution time in ms (default: 30000)
-%%        - cwd: working directory for the command
-%%        - env: environment variables as [{Key, Value}] strings
-%%        - max_output: max bytes to capture (default: 1MB)
+-doc """
+Run a shell command with options.
+
+Options:
+- `timeout`: max execution time in ms (default: 30000)
+- `cwd`: working directory for the command
+- `env`: environment variables as `[{Key, Value}]` strings
+- `max_output`: max bytes to capture (default: 1MB)
+""".
 -spec run(binary() | string(), command_opts()) ->
     {ok, command_result()} | {error, term()}.
 run(Command, Opts) when is_map(Opts) ->

@@ -1,25 +1,26 @@
-%%%-------------------------------------------------------------------
-%%% @doc In-process MCP server support for the BEAM Agent SDK.
-%%%
-%%% Enables users to define custom tools as Erlang functions that
-%%% Claude can call in-process via the mcp_message control request
-%%% protocol. Cross-referenced against TS SDK v0.2.66
-%%% createSdkMcpServer() and Python SDK create_sdk_mcp_server().
-%%%
-%%% Usage:
-%%%   Tool = agent_wire_mcp:tool(<<"greet">>, <<"Greet a user">>,
-%%%       #{<<"type">> => <<"object">>,
-%%%         <<"properties">> => #{<<"name">> => #{<<"type">> => <<"string">>}}},
-%%%       fun(Input) ->
-%%%           Name = maps:get(<<"name">>, Input, <<"world">>),
-%%%           {ok, [#{type => text, text => <<"Hello, ", Name/binary, "!">>}]}
-%%%       end),
-%%%   Server = agent_wire_mcp:server(<<"my-tools">>, [Tool]),
-%%%   %% Pass to session:
-%%%   claude_agent_session:start_link(#{sdk_mcp_servers => [Server]})
-%%% @end
-%%%-------------------------------------------------------------------
 -module(agent_wire_mcp).
+-moduledoc """
+In-process MCP server support for the BEAM Agent SDK.
+
+Enables users to define custom tools as Erlang functions that
+Claude can call in-process via the mcp_message control request
+protocol. Cross-referenced against TS SDK v0.2.66
+createSdkMcpServer() and Python SDK create_sdk_mcp_server().
+
+Usage:
+```erlang
+Tool = agent_wire_mcp:tool(<<"greet">>, <<"Greet a user">>,
+    #{<<"type">> => <<"object">>,
+      <<"properties">> => #{<<"name">> => #{<<"type">> => <<"string">>}}},
+    fun(Input) ->
+        Name = maps:get(<<"name">>, Input, <<"world">>),
+        {ok, [#{type => text, text => <<"Hello, ", Name/binary, "!">>}]}
+    end),
+Server = agent_wire_mcp:server(<<"my-tools">>, [Tool]),
+%% Pass to session:
+claude_agent_session:start_link(#{sdk_mcp_servers => [Server]})
+```
+""".
 
 -export([
     %% Constructors
@@ -107,7 +108,7 @@
 %% Constructors
 %%--------------------------------------------------------------------
 
-%% @doc Create a tool definition.
+-doc "Create a tool definition.".
 -spec tool(binary(), binary(), map(), tool_handler()) -> tool_def().
 tool(Name, Description, InputSchema, Handler)
   when is_binary(Name), is_binary(Description),
@@ -115,12 +116,12 @@ tool(Name, Description, InputSchema, Handler)
     #{name => Name, description => Description,
       input_schema => InputSchema, handler => Handler}.
 
-%% @doc Create an SDK MCP server with default version "1.0.0".
+-doc "Create an SDK MCP server with default version \"1.0.0\".".
 -spec server(binary(), [tool_def()]) -> sdk_mcp_server().
 server(Name, Tools) ->
     server(Name, Tools, <<"1.0.0">>).
 
-%% @doc Create an SDK MCP server with explicit version.
+-doc "Create an SDK MCP server with explicit version.".
 -spec server(binary(), [tool_def()], binary()) -> sdk_mcp_server().
 server(Name, Tools, Version)
   when is_binary(Name), is_list(Tools), is_binary(Version) ->
@@ -130,16 +131,16 @@ server(Name, Tools, Version)
 %% Registry Management
 %%--------------------------------------------------------------------
 
-%% @doc Create an empty MCP server registry.
+-doc "Create an empty MCP server registry.".
 -spec new_registry() -> mcp_registry().
 new_registry() -> #{}.
 
-%% @doc Register an SDK MCP server in the registry.
+-doc "Register an SDK MCP server in the registry.".
 -spec register_server(sdk_mcp_server(), mcp_registry()) -> mcp_registry().
 register_server(#{name := Name} = Server, Registry) ->
     Registry#{Name => Server}.
 
-%% @doc Get the list of server names in the registry.
+-doc "Get the list of server names in the registry.".
 -spec server_names(mcp_registry()) -> [binary()].
 server_names(Registry) ->
     maps:keys(Registry).
@@ -148,10 +149,12 @@ server_names(Registry) ->
 %% CLI Integration
 %%--------------------------------------------------------------------
 
-%% @doc Build the --mcp-config JSON map for CLI invocation.
-%%      Produces the wire format expected by Claude Code CLI:
-%%      #{<<"mcpServers">> => #{Name => #{<<"type">> => <<"sdk">>,
-%%                                        <<"name">> => Name}}}
+-doc """
+Build the --mcp-config JSON map for CLI invocation.
+
+Produces the wire format expected by Claude Code CLI:
+`#{<<"mcpServers">> => #{Name => #{<<"type">> => <<"sdk">>, <<"name">> => Name}}}`
+""".
 -spec servers_for_cli(mcp_registry()) -> map().
 servers_for_cli(Registry) ->
     ServerConfigs = maps:fold(fun(Name, _Server, Acc) ->
@@ -159,7 +162,7 @@ servers_for_cli(Registry) ->
     end, #{}, Registry),
     #{<<"mcpServers">> => ServerConfigs}.
 
-%% @doc Build the sdkMcpServers list for the initialize control_request.
+-doc "Build the sdkMcpServers list for the initialize control_request.".
 -spec servers_for_init(mcp_registry()) -> [binary()].
 servers_for_init(Registry) ->
     maps:keys(Registry).
@@ -168,26 +171,27 @@ servers_for_init(Registry) ->
 %% JSON-RPC Dispatch
 %%--------------------------------------------------------------------
 
-%% @doc Handle an MCP JSON-RPC message for a named server.
-%%      Uses default handler timeout of 30 seconds.
-%% @see handle_mcp_message/4
+-doc "Handle an MCP JSON-RPC message for a named server. Uses default handler timeout of 30 seconds.".
 -spec handle_mcp_message(binary(), map(), mcp_registry()) ->
     {ok, map()} | {error, binary()}.
 handle_mcp_message(ServerName, Message, Registry) ->
     handle_mcp_message(ServerName, Message, Registry, #{}).
 
-%% @doc Handle an MCP JSON-RPC message for a named server with options.
-%%      Dispatches to the appropriate handler based on the method.
-%%
-%%      Options:
-%%        - `handler_timeout` — timeout in ms for tool handlers (default: 30000)
-%%
-%%      Supported methods:
-%%        - "initialize" — capabilities + server info
-%%        - "notifications/initialized" — no-op acknowledgment
-%%        - "tools/list" — tool definitions in MCP format
-%%        - "tools/call" — execute handler, wrap result
-%%        - unknown — JSON-RPC -32601 error
+-doc """
+Handle an MCP JSON-RPC message for a named server with options.
+
+Dispatches to the appropriate handler based on the method.
+
+Options:
+  - `handler_timeout` -- timeout in ms for tool handlers (default: 30000)
+
+Supported methods:
+  - `"initialize"` -- capabilities + server info
+  - `"notifications/initialized"` -- no-op acknowledgment
+  - `"tools/list"` -- tool definitions in MCP format
+  - `"tools/call"` -- execute handler, wrap result
+  - unknown -- JSON-RPC -32601 error
+""".
 -spec handle_mcp_message(binary(), map(), mcp_registry(), map()) ->
     {ok, map()} | {error, binary()}.
 handle_mcp_message(ServerName, Message, Registry, Opts) ->
@@ -205,21 +209,22 @@ handle_mcp_message(ServerName, Message, Registry, Opts) ->
 %% Flat Tool Dispatch
 %%--------------------------------------------------------------------
 
-%% @doc Call a tool by name, searching across all servers in the registry.
-%%      Uses default handler timeout of 30 seconds.
-%% @see call_tool_by_name/4
+-doc "Call a tool by name, searching across all servers in the registry. Uses default handler timeout of 30 seconds.".
 -spec call_tool_by_name(binary(), map(), mcp_registry()) ->
     {ok, [content_result()]} | {error, binary()}.
 call_tool_by_name(ToolName, Arguments, Registry) ->
     call_tool_by_name(ToolName, Arguments, Registry, #{}).
 
-%% @doc Call a tool by name with options.
-%%      Searches across all servers in the registry.
-%%      Used by adapters that receive flat tool calls without server context
-%%      (e.g. Copilot `tool.call`, Codex MCP dispatch).
-%%
-%%      Options:
-%%        - `handler_timeout` — timeout in ms for tool handlers (default: 30000)
+-doc """
+Call a tool by name with options.
+
+Searches across all servers in the registry.
+Used by adapters that receive flat tool calls without server context
+(e.g. Copilot `tool.call`, Codex MCP dispatch).
+
+Options:
+  - `handler_timeout` -- timeout in ms for tool handlers (default: 30000)
+""".
 -spec call_tool_by_name(binary(), map(), mcp_registry(), map()) ->
     {ok, [content_result()]} | {error, binary()}.
 call_tool_by_name(ToolName, Arguments, Registry, Opts) ->
@@ -231,8 +236,7 @@ call_tool_by_name(ToolName, Arguments, Registry, Opts) ->
             {error, <<"Unknown tool: ", ToolName/binary>>}
     end.
 
-%% @doc Get all tool definitions from the registry, flattened across servers.
-%%      Useful for advertising available tools during session setup.
+-doc "Get all tool definitions from the registry, flattened across servers. Useful for advertising available tools during session setup.".
 -spec all_tool_definitions(mcp_registry()) -> [tool_def()].
 all_tool_definitions(Registry) ->
     lists:append(maps:fold(fun(_Name, #{tools := Tools}, Acc) ->
@@ -243,9 +247,12 @@ all_tool_definitions(Registry) ->
 %% Convenience: Build Registry from Session Opts
 %%--------------------------------------------------------------------
 
-%% @doc Build an MCP registry from a list of SDK MCP server definitions.
-%%      Returns `undefined' when no servers are configured (empty list
-%%      or `undefined'). Used by all adapter session modules during init.
+-doc """
+Build an MCP registry from a list of SDK MCP server definitions.
+
+Returns `undefined` when no servers are configured (empty list
+or `undefined`). Used by all adapter session modules during init.
+""".
 -spec build_registry([sdk_mcp_server()] | undefined) ->
     mcp_registry() | undefined.
 build_registry(undefined) -> undefined;
@@ -259,9 +266,12 @@ build_registry(Servers) when is_list(Servers) ->
 %% Runtime Management (Universal Features)
 %%--------------------------------------------------------------------
 
-%% @doc Get status of all registered MCP servers.
-%%      Returns a map of server name -> status info (name, version,
-%%      tool count, enabled state).
+-doc """
+Get status of all registered MCP servers.
+
+Returns a map of server name to status info (name, version,
+tool count, enabled state).
+""".
 -spec server_status(mcp_registry() | undefined) ->
     {ok, #{binary() => map()}}.
 server_status(undefined) ->
@@ -280,9 +290,12 @@ server_status(Registry) when is_map(Registry) ->
     end, Registry),
     {ok, Status}.
 
-%% @doc Replace the entire server registry with new servers.
-%%      Returns the new registry. Existing servers not in the new
-%%      list are removed.
+-doc """
+Replace the entire server registry with new servers.
+
+Returns the new registry. Existing servers not in the new
+list are removed.
+""".
 -spec set_servers([sdk_mcp_server()], mcp_registry() | undefined) ->
     mcp_registry().
 set_servers(Servers, _OldRegistry) when is_list(Servers) ->
@@ -290,9 +303,12 @@ set_servers(Servers, _OldRegistry) when is_list(Servers) ->
 set_servers(_, OldRegistry) ->
     OldRegistry.
 
-%% @doc Enable or disable an MCP server by name.
-%%      Returns the updated registry. Disabled servers are retained
-%%      but excluded from dispatch.
+-doc """
+Enable or disable an MCP server by name.
+
+Returns the updated registry. Disabled servers are retained
+but excluded from dispatch.
+""".
 -spec toggle_server(binary(), boolean(), mcp_registry() | undefined) ->
     {ok, mcp_registry()} | {error, not_found}.
 toggle_server(_Name, _Enabled, undefined) ->
@@ -307,9 +323,12 @@ toggle_server(Name, Enabled, Registry)
             {error, not_found}
     end.
 
-%% @doc Reconnect (re-register) an MCP server by name.
-%%      Resets the server's state by re-inserting it into the registry.
-%%      In practice this clears any cached state the server may hold.
+-doc """
+Reconnect (re-register) an MCP server by name.
+
+Resets the server's state by re-inserting it into the registry.
+In practice this clears any cached state the server may hold.
+""".
 -spec reconnect_server(binary(), mcp_registry() | undefined) ->
     {ok, mcp_registry()} | {error, not_found}.
 reconnect_server(_Name, undefined) ->
@@ -325,7 +344,7 @@ reconnect_server(Name, Registry)
             {error, not_found}
     end.
 
-%% @doc Remove an MCP server from the registry by name.
+-doc "Remove an MCP server from the registry by name.".
 -spec unregister_server(binary(), mcp_registry()) -> mcp_registry().
 unregister_server(Name, Registry)
   when is_binary(Name), is_map(Registry) ->
@@ -338,7 +357,7 @@ unregister_server(Name, Registry)
 %% ETS table for session-scoped MCP registries.
 -define(SESSION_REGISTRY_TABLE, agent_wire_mcp_registries).
 
-%% @doc Ensure the session registry ETS table exists. Idempotent.
+-doc "Ensure the session registry ETS table exists. Idempotent.".
 -spec ensure_registry_table() -> ok.
 ensure_registry_table() ->
     case ets:whereis(?SESSION_REGISTRY_TABLE) of
@@ -354,9 +373,12 @@ ensure_registry_table() ->
             ok
     end.
 
-%% @doc Register an MCP registry for a session (keyed by session pid).
-%%      Called by adapters during session init to make their MCP
-%%      registry accessible for runtime management.
+-doc """
+Register an MCP registry for a session (keyed by session pid).
+
+Called by adapters during session init to make their MCP
+registry accessible for runtime management.
+""".
 -spec register_session_registry(pid(), mcp_registry() | undefined) -> ok.
 register_session_registry(_Pid, undefined) -> ok;
 register_session_registry(Pid, Registry)
@@ -365,7 +387,7 @@ register_session_registry(Pid, Registry)
     ets:insert(?SESSION_REGISTRY_TABLE, {Pid, Registry}),
     ok.
 
-%% @doc Get the MCP registry for a session by pid.
+-doc "Get the MCP registry for a session by pid.".
 -spec get_session_registry(pid()) ->
     {ok, mcp_registry()} | {error, not_found}.
 get_session_registry(Pid) when is_pid(Pid) ->
@@ -375,8 +397,11 @@ get_session_registry(Pid) when is_pid(Pid) ->
         [] -> {error, not_found}
     end.
 
-%% @doc Update the MCP registry for a session.
-%%      Uses a fun to transform the existing registry atomically.
+-doc """
+Update the MCP registry for a session.
+
+Uses a fun to transform the existing registry atomically.
+""".
 -spec update_session_registry(pid(),
     fun((mcp_registry()) -> mcp_registry())) -> ok | {error, not_found}.
 update_session_registry(Pid, UpdateFun)
@@ -391,7 +416,7 @@ update_session_registry(Pid, UpdateFun)
             {error, not_found}
     end.
 
-%% @doc Remove a session's MCP registry (called on session termination).
+-doc "Remove a session's MCP registry (called on session termination).".
 -spec unregister_session_registry(pid()) -> ok.
 unregister_session_registry(Pid) when is_pid(Pid) ->
     ensure_registry_table(),
@@ -495,7 +520,7 @@ dispatch_jsonrpc(Msg, _Server, _Timeout) ->
 %% Internal: Helpers
 %%--------------------------------------------------------------------
 
-%% @doc Convert a tool_def to MCP wire format for tools/list.
+%% Convert a tool_def to MCP wire format for tools/list.
 -spec tool_to_mcp_format(tool_def()) -> map().
 tool_to_mcp_format(#{name := Name, description := Desc,
                       input_schema := Schema}) ->
@@ -503,13 +528,13 @@ tool_to_mcp_format(#{name := Name, description := Desc,
       <<"description">> => Desc,
       <<"inputSchema">> => Schema}.
 
-%% @doc Find a tool by name in the tools list.
+%% Find a tool by name in the tools list.
 -spec find_tool(binary(), [tool_def()]) -> {ok, tool_def()} | error.
 find_tool(_Name, []) -> error;
 find_tool(Name, [#{name := Name} = Tool | _]) -> {ok, Tool};
 find_tool(Name, [_ | Rest]) -> find_tool(Name, Rest).
 
-%% @doc Find a tool by name across all servers in the registry.
+%% Find a tool by name across all servers in the registry.
 -spec find_tool_in_registry(binary(), mcp_registry()) -> {ok, tool_def()} | error.
 find_tool_in_registry(ToolName, Registry) ->
     maps:fold(fun
@@ -521,9 +546,9 @@ find_tool_in_registry(ToolName, Registry) ->
             Found
     end, error, Registry).
 
-%% @doc Execute a tool handler with crash protection and configurable timeout.
-%%      Spawns a monitored process to isolate handler crashes from
-%%      the gen_statem.
+%% Execute a tool handler with crash protection and configurable timeout.
+%% Spawns a monitored process to isolate handler crashes from
+%% the gen_statem.
 -spec call_handler(tool_handler(), map(), pos_integer()) ->
     {ok, [content_result()]} | {error, binary()}.
 call_handler(Handler, Input, Timeout) ->
@@ -558,7 +583,7 @@ call_handler(Handler, Input, Timeout) ->
             io_lib:format("Tool handler timed out after ~B seconds", [TimeoutSecs]))}
     end.
 
-%% @doc Format a content_result for the MCP wire protocol.
+%% Format a content_result for the MCP wire protocol.
 -spec format_content(content_result()) -> #{binary() => binary()}.
 format_content(#{type := text, text := Text}) ->
     #{<<"type">> => <<"text">>, <<"text">> => Text};

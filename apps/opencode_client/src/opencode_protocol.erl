@@ -1,31 +1,32 @@
-%%%-------------------------------------------------------------------
-%%% @doc Pure protocol mapping: OpenCode SSE events → agent_wire:message().
-%%%
-%%% No processes. All functions are pure transformations. Dispatches
-%%% on SSE event type, then sub-dispatches on part type / status.
-%%%
-%%% Mapping table:
-%%%
-%%%   SSE event type          | Condition                  | agent_wire type
-%%%   message.part.updated    | part.type=text, delta      | text
-%%%   message.part.updated    | part.type=text, no delta   | text
-%%%   message.part.updated    | part.type=reasoning        | thinking
-%%%   message.part.updated    | part.type=tool, pending    | tool_use
-%%%   message.part.updated    | part.type=tool, running    | tool_use
-%%%   message.part.updated    | part.type=tool, completed  | tool_result
-%%%   message.part.updated    | part.type=tool, error      | error
-%%%   message.part.updated    | part.type=step-start       | system
-%%%   message.part.updated    | part.type=step-finish      | system
-%%%   message.updated         | assistant with error       | error
-%%%   session.idle            | during active query        | result
-%%%   session.error           | —                          | error
-%%%   permission.updated      | —                          | control_request
-%%%   server.heartbeat        | —                          | skip
-%%%   server.connected        | —                          | system
-%%%   all others              | —                          | raw
-%%% @end
-%%%-------------------------------------------------------------------
 -module(opencode_protocol).
+
+-moduledoc """
+Pure protocol mapping: OpenCode SSE events to `agent_wire:message()`.
+
+No processes. All functions are pure transformations. Dispatches
+on SSE event type, then sub-dispatches on part type / status.
+
+Mapping table:
+
+| SSE event type          | Condition                  | agent_wire type    |
+|-------------------------|----------------------------|--------------------|
+| message.part.updated    | part.type=text, delta      | text               |
+| message.part.updated    | part.type=text, no delta   | text               |
+| message.part.updated    | part.type=reasoning        | thinking           |
+| message.part.updated    | part.type=tool, pending    | tool_use           |
+| message.part.updated    | part.type=tool, running    | tool_use           |
+| message.part.updated    | part.type=tool, completed  | tool_result        |
+| message.part.updated    | part.type=tool, error      | error              |
+| message.part.updated    | part.type=step-start       | system             |
+| message.part.updated    | part.type=step-finish      | system             |
+| message.updated         | assistant with error       | error              |
+| session.idle            | during active query        | result             |
+| session.error           | --                         | error              |
+| permission.updated      | --                         | control_request    |
+| server.heartbeat        | --                         | skip               |
+| server.connected        | --                         | system             |
+| all others              | --                         | raw                |
+""".
 
 -export([
     normalize_event/1,
@@ -51,15 +52,17 @@
 %% Public API
 %%====================================================================
 
-%% @doc Normalize an SSE event map into an agent_wire:message() or `skip`.
-%%
-%%      The input map has keys:
-%%        `data`  — the JSON-decoded payload map
-%%        `event` — the SSE event type binary (e.g. "message.part.updated")
-%%        `id`    — optional SSE event id
-%%
-%%      The event type binary is extracted from the SSE `event` field.
-%%      If the field is absent, the event type defaults to "unknown".
+-doc """
+Normalize an SSE event map into an `agent_wire:message()` or `skip`.
+
+The input map has keys:
+- `data` -- the JSON-decoded payload map
+- `event` -- the SSE event type binary (e.g. `"message.part.updated"`)
+- `id` -- optional SSE event id
+
+The event type binary is extracted from the SSE `event` field.
+If the field is absent, the event type defaults to `"unknown"`.
+""".
 -spec normalize_event(map()) -> agent_wire:message() | skip.
 normalize_event(SseEvent) ->
     EventType = maps:get(event, SseEvent, <<"unknown">>),
@@ -67,7 +70,7 @@ normalize_event(SseEvent) ->
     Now       = erlang:system_time(millisecond),
     dispatch_event(EventType, Payload, Now).
 
-%% @doc Build the JSON body map for POST /session/:id/message.
+-doc "Build the JSON body map for `POST /session/:id/message`.".
 -spec build_prompt_input(binary(), map()) -> map().
 build_prompt_input(Prompt, Opts) ->
     Parts = [#{<<"type">> => <<"text">>, <<"text">> => Prompt}],
@@ -75,12 +78,12 @@ build_prompt_input(Prompt, Opts) ->
     M1 = maybe_add_model(Base, Opts),
     maybe_add_output_format(M1, Opts).
 
-%% @doc Build the JSON body map for POST /permission/:id/reply.
+-doc "Build the JSON body map for `POST /permission/:id/reply`.".
 -spec build_permission_reply(binary(), binary()) -> map().
 build_permission_reply(PermId, Decision) ->
     #{<<"id">> => PermId, <<"decision">> => Decision}.
 
-%% @doc Parse a session object returned by POST /session.
+-doc "Parse a session object returned by `POST /session`.".
 -spec parse_session(map()) -> map().
 parse_session(Raw) when is_map(Raw) ->
     #{

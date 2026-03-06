@@ -1,15 +1,14 @@
-%%%-------------------------------------------------------------------
-%%% @doc Telemetry event helpers for agent wire protocol adapters.
-%%%
-%%% All gen_statem state transitions and query lifecycle events emit
-%%% telemetry events via the `telemetry' OTP library. This module
-%%% provides consistent event emission across all five adapters.
-%%%
-%%% Libraries emit events; applications handle them. No OTLP export
-%%% is built in — consumers bring their own telemetry handlers.
-%%% @end
-%%%-------------------------------------------------------------------
 -module(agent_wire_telemetry).
+-moduledoc """
+Telemetry event helpers for agent wire protocol adapters.
+
+All gen_statem state transitions and query lifecycle events emit
+telemetry events via the `telemetry` OTP library. This module
+provides consistent event emission across all five adapters.
+
+Libraries emit events; applications handle them. No OTLP export
+is built in -- consumers bring their own telemetry handlers.
+""".
 
 -export([
     span_start/3,
@@ -23,8 +22,7 @@
 %% API
 %%--------------------------------------------------------------------
 
-%% @doc Emit a span start event. Returns monotonic start time for
-%%      duration calculation in span_stop/3.
+-doc "Emit a span start event. Returns monotonic start time for duration calculation in span_stop/3.".
 -spec span_start(atom(), atom(), map()) -> integer().
 span_start(Agent, EventSuffix, Metadata) ->
     StartTime = erlang:monotonic_time(),
@@ -35,7 +33,7 @@ span_start(Agent, EventSuffix, Metadata) ->
     ),
     StartTime.
 
-%% @doc Emit a span stop event with duration measurement.
+-doc "Emit a span stop event with duration measurement.".
 -spec span_stop(atom(), atom(), integer()) -> ok.
 span_stop(Agent, EventSuffix, StartTime) ->
     Duration = erlang:monotonic_time() - StartTime,
@@ -45,7 +43,7 @@ span_stop(Agent, EventSuffix, StartTime) ->
         #{agent => Agent}
     ).
 
-%% @doc Emit a span exception event.
+-doc "Emit a span exception event.".
 -spec span_exception(atom(), atom(), term()) -> ok.
 span_exception(Agent, EventSuffix, Reason) ->
     telemetry:execute(
@@ -54,7 +52,7 @@ span_exception(Agent, EventSuffix, Reason) ->
         #{agent => Agent, reason => Reason}
     ).
 
-%% @doc Emit a state change event for gen_statem transitions.
+-doc "Emit a state change event for gen_statem transitions.".
 -spec state_change(atom(), atom(), atom()) -> ok.
 state_change(Agent, FromState, ToState) ->
     telemetry:execute(
@@ -63,7 +61,7 @@ state_change(Agent, FromState, ToState) ->
         #{agent => Agent, from_state => FromState, to_state => ToState}
     ).
 
-%% @doc Emit a buffer overflow warning.
+-doc "Emit a buffer overflow warning.".
 -spec buffer_overflow(pos_integer(), pos_integer()) -> ok.
 buffer_overflow(BufferSize, Max) ->
     telemetry:execute(
